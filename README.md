@@ -1,5 +1,81 @@
+# Universal Binary Principle Physics Engine
+
+A deterministic, UBP-native physics simulation engine with full 3D Three.js rendering, composite material system, thermal properties, UBP-derived fluid SPH constants, and Topological Torque rigid body mechanics.
+
+UBP: [https://github.com/DigitalEuan/UBP_Repo/tree/main/core_studio_v4.0]
+
+## All constants from UBP geometric laws:
+
+| Constant | V2 Formula | V3 Formula | Law |
+|---|---|---|---|
+| Pressure stiffness | `Y³ × 0.001` | `SINK_L × 24 / KISSING` | LAW_INFORMATIONAL_SATURATION_001 |
+| Viscosity | `(1-NRCI) × Y × 10` | `Y / 96` | LAW_ONTOLOGICAL_FRICTION_001 |
+| Surface tension | `Y × 5` | `Y² / KISSING` | LAW_COMP_001 |
+| Smoothing radius | `0.5` | `1 / (Y × 24)` | Golay code dimension |
+
+## Topological Torque Moment of Inertia
+
+```
+I = m × L² / 12 × (1 + NRCI) × Volumetric_Rebate
+```
+
+## Composite Material System
+
+Every entity is an aggregate of N × `ELEM_XXX_YYY` particles from the UBP KB:
+
+```python
+iron_block = EntityFactoryV3.make_block('IronBlock', 'iron', position)
+# → 1000 × ELEM_Fe_026 particles
+# → aggregate Golay vector (XOR of all particle vectors)
+# → aggregate NRCI, mass, thermal properties
+```
+
+Available materials: `iron`, `copper`, `aluminium`, `steel`, `water`, `air`
+
+Where:
+- `(1 + NRCI)` is the Topological Torque correction (LAW_TOPOLOGICAL_TORQUE_001)
+- `Volumetric_Rebate` = `1 - compactness/13` (13D Sink geometry)
+- `compactness = V^(2/3) / S` (volume-to-surface ratio)
+
+## Thermal Properties
+
+Every entity has a `ThermalState`:
+
+| Property | Formula | Law |
+|---|---|---|
+| `temperature_ubp` | `T_K × Y / 24` | LAW_THERMAL_001 |
+| `heat_capacity` | `Σ(particle_capacity) / N` | LAW_TOPO_EFFICIENCY_001 |
+| `heat_transfer` | `Σ(particle_transfer) / N` | The Shaving |
+
+Temperature in Kelvin: `T_K = T_ubp × 24 / Y`
+
+## Ambient Environment
+
+```python
+ambient = AmbientEnvironment(temperature_K=293.15)
+# → air_density_ubp = Y × ρ_air_SI / 1000
+# → atmospheric_pressure_ubp = P_atm × Y² / 1000
+# → drag_coefficient = Y² × (T_K / 293.15)^0.5
+```
+
+## UBP Physics Constants
+
+| Constant | Value | Derivation |
+|---|---|---|
+| Y (Ontological Constant) | 0.26468 | UBP core (50-term π series) |
+| C_DRAG (air drag) | Y² = 0.07005 | LAW_ONTOLOGICAL_FRICTION_001 |
+| V_MAX (speed limit) | 1/Y = 3.778 | Substrate speed limit |
+| G_TICK (gravity/tick²) | G_earth × Y / 3600 | Equivalence Principle |
+| REST_THRESHOLD | SINK_L / 100 | 13D Sink leakage |
+| SPH_STIFFNESS | SINK_L × 24 / KISSING | LAW_INFORMATIONAL_SATURATION_001 |
+| SPH_VISCOSITY | Y / 96 | LAW_ONTOLOGICAL_FRICTION_001 |
+| SPH_SURFACE_TENSION | Y² / KISSING | LAW_COMP_001 |
+| BOLTZMANN_K (UBP) | Y × k_B_SI | Thermal bridge |
+
+
+The APP that drives the UBP scripts is made with Google AI Stidio
 <div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+<img width="200" height="auto" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
 </div>
 
 # Run and deploy your AI Studio app
