@@ -32,17 +32,19 @@ from decimal import Decimal
 # KB LOADER
 # ---------------------------------------------------------------------------
 
-_KB_PATH = os.path.join(os.path.dirname(__file__), 'ubp_system_kb.json')
+_KB_PATH = os.path.join(os.path.dirname(__file__), '..', 'upload', 'ubp_system_kb.json')
+_KB_FALLBACK = os.path.join(os.path.dirname(__file__), 'ubp_system_kb.json')
 
 def _load_kb() -> Dict[str, Any]:
     """Load the UBP system KB JSON."""
-    if os.path.exists(_KB_PATH):
-        with open(_KB_PATH, 'r', encoding='utf-8') as f:
-            raw = json.load(f)
-        # Index by ubp_id
-        return {v['ubp_id']: v for v in raw.values() if 'ubp_id' in v}
+    for path in [_KB_PATH, _KB_FALLBACK]:
+        if os.path.exists(path):
+            with open(path, 'r', encoding='utf-8') as f:
+                raw = json.load(f)
+            # Index by ubp_id
+            return {v['ubp_id']: v for v in raw.values() if 'ubp_id' in v}
     raise FileNotFoundError(
-        "ubp_system_kb.json not found."
+        "ubp_system_kb.json not found. Place it in UBP_Repo/upload/ or ubp_game_engine_v3/."
     )
 
 _KB: Dict[str, Any] = _load_kb()

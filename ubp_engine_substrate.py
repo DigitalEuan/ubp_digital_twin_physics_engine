@@ -32,7 +32,7 @@ from typing import List, Tuple, Dict, Any, Optional
 # PATH SETUP: Add the UBP core directory to sys.path so we can import directly
 # ---------------------------------------------------------------------------
 _ENGINE_DIR = os.path.dirname(os.path.abspath(__file__))
-_CORE_DIR = _ENGINE_DIR
+_CORE_DIR = os.path.join(os.path.dirname(_ENGINE_DIR), "core_studio_v4.0", "core")
 
 if _CORE_DIR not in sys.path:
     sys.path.insert(0, _CORE_DIR)
@@ -412,3 +412,95 @@ if __name__ == '__main__':
             for k2, v2 in val.items():
                 if k2 != 'status':
                     print(f"         {k2}: {v2}")
+
+
+# ---------------------------------------------------------------------------
+# UBPEngineSubstrate CLASS WRAPPER
+# ---------------------------------------------------------------------------
+# Provides an object-oriented interface to the module-level substrate functions.
+# This class is used by ubp_server_v3.py and other modules that need a
+# stateful substrate object.
+# ---------------------------------------------------------------------------
+
+class UBPEngineSubstrate:
+    """
+    Object-oriented wrapper around the UBP Engine Substrate module functions.
+    Exposes all substrate capabilities as instance methods while maintaining
+    the singleton UBP core objects (Golay, Leech, TGIC, etc.).
+    """
+
+    def __init__(self):
+        # Expose the singleton engines as attributes
+        self.golay = GOLAY_ENGINE
+        self.leech = LEECH_ENGINE
+        self.tgic = get_tgic()
+        self.particle_physics = PARTICLE_PHYSICS
+
+        # Expose key constants (using the names defined in this module)
+        self.Y_CONSTANT = Y_CONSTANT
+        self.PI = PI
+        self.G_EARTH_MS2 = G_EARTH_MS2
+        self.SINK_L = SINK_L
+        self.KISSING_NUMBER = KISSING_NUMBER
+        self.LEECH_DIMENSION = LEECH_DIMENSION
+        # Physics engine constants are in ubp_physics_v3 — import lazily
+        try:
+            from ubp_physics_v3 import (
+                _C_DRAG as _c, _V_MAX as _v, _G_PER_TICK_SQ as _g,
+                _V_REST_THRESHOLD as _r
+            )
+            self.C_DRAG = _c
+            self.V_MAX = _v
+            self.G_PER_TICK_SQ = _g
+            self.V_REST_THRESHOLD = _r
+        except ImportError:
+            self.C_DRAG = None
+            self.V_MAX = None
+            self.G_PER_TICK_SQ = None
+            self.V_REST_THRESHOLD = None
+
+    # --- Golay Operations ---
+    def encode(self, message_12bit):
+        return encode_to_golay(message_12bit)
+
+    def decode(self, received_24bit):
+        return decode_from_golay(received_24bit)
+
+    def coherence_snap(self, noisy_vector):
+        return coherence_snap(noisy_vector)
+
+    # --- Symmetry & NRCI ---
+    def calculate_symmetry_tax(self, vector_24bit):
+        return calculate_symmetry_tax(vector_24bit)
+
+    def calculate_nrci(self, vector_24bit):
+        return calculate_nrci(vector_24bit)
+
+    # --- Vector Operations ---
+    def hamming_weight(self, vector):
+        return hamming_weight(vector)
+
+    def hamming_distance(self, v1, v2):
+        return hamming_distance(v1, v2)
+
+    def vector_from_math_dna(self, math_dna):
+        return vector_from_math_dna(math_dna)
+
+    def xor_interact(self, v1, v2):
+        return xor_interact(v1, v2)
+
+    # --- Construction Tax ---
+    def construction_tax_from_dna(self, math_dna):
+        return _construction_tax_from_dna(math_dna)
+
+    # --- Validation ---
+    def validate(self):
+        return validate_substrate()
+
+    def __repr__(self):
+        return (
+            f"UBPEngineSubstrate("
+            f"Y={float(self.Y_CONSTANT):.6f}, "
+            f"V_MAX={float(self.V_MAX):.4f}, "
+            f"C_DRAG={float(self.C_DRAG):.6f})"
+        )

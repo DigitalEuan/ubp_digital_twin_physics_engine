@@ -353,9 +353,9 @@ class FluidBodyV3:
                     continue
                 bb = entity.aabb()
                 # Check if particle is inside the AABB
-                if (float(bb.min_x) <= p.x <= float(bb.max_x) and
-                    float(bb.min_y) <= p.y <= float(bb.max_y) and
-                    float(bb.min_z) <= p.z <= float(bb.max_z)):
+                if (bb.min_x <= p.x <= float(bb.max_x) and
+                    bb.min_y <= p.y <= float(bb.max_y) and
+                    bb.min_z <= p.z <= float(bb.max_z)):
 
                     # Compute restitution from Hamming distance
                     dH = hamming_distance(water_vec, entity.golay_vector)
