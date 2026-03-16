@@ -2,6 +2,10 @@
 
 A deterministic, UBP-native physics simulation engine with full 3D Three.js rendering, composite material system, thermal properties, UBP-derived fluid SPH constants, and Topological Torque rigid body mechanics.
 
+**UNDER CONSTRUCTION**
+* 16 March 2026
+* E R A Craig, New Zealand
+
 UBP: [https://github.com/DigitalEuan/UBP_Repo/tree/main/core_studio_v4.0]
 
 ## All constants from UBP geometric laws:
