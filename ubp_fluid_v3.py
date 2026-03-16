@@ -1,6 +1,6 @@
 """
 ================================================================================
-UBP FLUID SIMULATION v3.0 — UBP-SPH
+UBP FLUID SIMULATION v3.1 — UBP-SPH
 ================================================================================
 Smoothed Particle Hydrodynamics (SPH) with all scalars derived from UBP laws.
 
@@ -281,10 +281,12 @@ class FluidBodyV3:
         ay_list = [-self.g] * n  # Gravity (downward)
         az_list = [0.0] * n
 
-        for i, pi in enumerate(self.particles):
-            for j, pj in enumerate(self.particles):
+        for i in range(n):
+            pi = self.particles[i]
+            for j in range(n):
                 if i == j:
                     continue
+                pj = self.particles[j]
                 dx = pi.x - pj.x
                 dy = pi.y - pj.y
                 dz = pi.z - pj.z
@@ -314,7 +316,8 @@ class FluidBodyV3:
                 az_list[i] -= self.sigma * w * dz / (r + 1e-10)
 
         # ---- 6. INTEGRATE ----
-        for i, pi in enumerate(self.particles):
+        for i in range(n):
+            pi = self.particles[i]
             pi.vx += ax_list[i]
             pi.vy += ay_list[i]
             pi.vz += az_list[i]

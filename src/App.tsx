@@ -222,12 +222,12 @@ const Scene = ({ state }: { state: SimulationState | null }) => {
   // Build a lookup from entity_id to entity for lever rendering
   const entityById = useMemo(() => {
     const map: Record<number, EntityState> = {};
-    state.entities.forEach(e => { map[e.id] = e; });
+    (state.entities || []).forEach(e => { map[e.id] = e; });
     return map;
   }, [state.entities]);
 
   // Separate lever entities from regular entities
-  const leverIds = new Set(state.lever_constraints.map(c => c.lever_id));
+  const leverIds = new Set((state.lever_constraints || []).map(c => c.lever_id));
 
   return (
     <>
@@ -252,14 +252,14 @@ const Scene = ({ state }: { state: SimulationState | null }) => {
       />
 
       {/* Regular entities (non-lever) */}
-      {state.entities
+      {(state.entities || [])
         .filter(e => !leverIds.has(e.id))
         .map(entity => (
           <EntityMesh key={entity.id} data={entity} />
         ))}
 
       {/* Lever entities — rendered with rotation around pivot */}
-      {state.lever_constraints.map(constraint => (
+      {(state.lever_constraints || []).map(constraint => (
         <React.Fragment key={`lever-${constraint.lever_id}`}>
           <LeverVisual
             constraint={constraint}
@@ -270,7 +270,7 @@ const Scene = ({ state }: { state: SimulationState | null }) => {
       ))}
 
       {/* Fluid particles — single instanced draw call */}
-      <FluidParticles particles={state.fluid_particles} />
+      <FluidParticles particles={state.fluid_particles || []} />
     </>
   );
 };
@@ -572,13 +572,13 @@ export default function App() {
           {activeTab === 'data' && (
             <>
               <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Entity Data</h3>
-              {state?.entities.map(e => (
+              {(state?.entities || []).map(e => (
                 <EntityCard key={e.id} entity={e} />
               ))}
               {(state?.lever_constraints ?? []).length > 0 && (
                 <>
                   <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mt-2">Lever Constraints</h3>
-                  {state!.lever_constraints.map(c => (
+                  {(state?.lever_constraints ?? []).map(c => (
                     <LeverCard key={c.lever_id} constraint={c} />
                   ))}
                 </>

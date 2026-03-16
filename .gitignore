@@ -6,8 +6,3 @@ coverage/
 *.log
 .env*
 !.env.example
-__pycache__/
-*.pyc
-*.pyo
-dist/
-node_modules/

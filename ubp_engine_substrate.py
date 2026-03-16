@@ -16,7 +16,8 @@ NO simplifications. NO shortcuts. This substrate uses the real UBP system:
   - BinaryLinearAlgebra for all GF(2) operations
   - UBPSourceCodeParticlePhysics for fundamental constant derivation
 
-Author: UBP Game Engine v1.0 (built on UBP Core Studio v4.2.7 / v5.3)
+UBP Game Engine v1.0 (built on UBP Core Studio v4.2.7 / v5.3)
+Author: E R A Craig, New Zealand
 Date: March 2026
 ================================================================================
 """

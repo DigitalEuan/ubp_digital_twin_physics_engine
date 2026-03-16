@@ -144,7 +144,20 @@ class UBPSimulationManager:
     def get_state(self) -> Dict[str, Any]:
         """Return the current simulation state for the frontend."""
         if self.space is None:
-            return {'tick': 0, 'is_running': False, 'entities': [], 'fluid_particles': []}
+            return {
+                'tick': 0,
+                'time_s': 0.0,
+                'is_running': False,
+                'ambient': {'temperature_K': 293.15, 'temperature_ubp': 0.0},
+                'entities': [],
+                'fluid_particles': [],
+                'lever_constraints': [],
+                'stats': {
+                    'entity_count': 0,
+                    'fluid_particle_count': 0,
+                    'avg_tick_ms': 0.0
+                }
+            }
         state = self.space.get_threejs_state()
         state['is_running'] = self.is_running
         return state
