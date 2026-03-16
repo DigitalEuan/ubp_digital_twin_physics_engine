@@ -177,6 +177,14 @@ class MaterialRecipe:
         'light':     [('ELEM_Al_013', 1)],
     }
 
+    # Compound phase overrides: elements may be gaseous but the compound is liquid/solid
+    # H2O: H and O are both gas at STP, but water is liquid (phase=2) at STP
+    # This is the emergent phase from molecular bonding — a UBP compound property
+    PHASE_OVERRIDES: Dict[str, int] = {
+        'water': 2,   # liquid
+        'air':   1,   # gas (correct as-is)
+    }
+
     def __init__(self, name: str, composition: Optional[List[Tuple[str, int]]] = None):
         self.name = name
         if composition is not None:
@@ -248,9 +256,11 @@ class MaterialRecipe:
             total_count
         )
 
-        # Phase at STP: majority vote
+        # Phase at STP: majority vote, with compound override for molecular materials
+        # (H2O elements are gaseous but water compound is liquid at STP)
         phases = [elem.phase_stp for elem, count in self.elements for _ in range(count)]
-        self.phase_stp: int = max(set(phases), key=phases.count)
+        majority_phase = max(set(phases), key=phases.count)
+        self.phase_stp: int = MaterialRecipe.PHASE_OVERRIDES.get(self.name, majority_phase)
 
     def __repr__(self) -> str:
         return (f"MaterialRecipe({self.name}, "

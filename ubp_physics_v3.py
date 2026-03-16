@@ -242,6 +242,7 @@ class UBPPhysicsEngineV3:
         self,
         entity_a: UBPEntityV3,
         entity_b: UBPEntityV3,
+        axis: str = 'y',
     ) -> Tuple[Velocity, Velocity]:
         """
         Resolve a collision between two entities using UBP XOR Smash.
@@ -250,27 +251,57 @@ class UBPPhysicsEngineV3:
         (LAW_COMP_001 + LAW_ENG_SWITCH_001: Tax(A^B) = Tax(C), Efficiency = 11/12)
 
         Impulse-based collision response (1D along collision axis).
+        Both bodies receive impulse — momentum is conserved.
         """
         xor_vec = [a ^ b for a, b in zip(entity_a.golay_vector, entity_b.golay_vector)]
         restitution = to_decimal(calculate_nrci(xor_vec))
 
-        # Relative velocity along y-axis (primary collision axis)
-        rel_vy = entity_a.velocity.vy - entity_b.velocity.vy
-
-        # Impulse magnitude
         m_a = entity_a.inertia
         m_b = entity_b.inertia if not entity_b.is_static else D('1E20')
+        inv_m_a = D1 / m_a
+        inv_m_b = D1 / m_b
 
-        j = -(D1 + restitution) * rel_vy / (D1/m_a + D1/m_b)
+        if axis == 'y':
+            rel_v = entity_a.velocity.vy - entity_b.velocity.vy
+            j = -(D1 + restitution) * rel_v / (inv_m_a + inv_m_b)
+            new_va = Velocity(
+                entity_a.velocity.vx,
+                entity_a.velocity.vy + j * inv_m_a,
+                entity_a.velocity.vz,
+            )
+            new_vb = Velocity(
+                entity_b.velocity.vx,
+                entity_b.velocity.vy - j * inv_m_b if not entity_b.is_static else entity_b.velocity.vy,
+                entity_b.velocity.vz,
+            )
+        elif axis == 'x':
+            rel_v = entity_a.velocity.vx - entity_b.velocity.vx
+            j = -(D1 + restitution) * rel_v / (inv_m_a + inv_m_b)
+            new_va = Velocity(
+                entity_a.velocity.vx + j * inv_m_a,
+                entity_a.velocity.vy,
+                entity_a.velocity.vz,
+            )
+            new_vb = Velocity(
+                entity_b.velocity.vx - j * inv_m_b if not entity_b.is_static else entity_b.velocity.vx,
+                entity_b.velocity.vy,
+                entity_b.velocity.vz,
+            )
+        else:  # z
+            rel_v = entity_a.velocity.vz - entity_b.velocity.vz
+            j = -(D1 + restitution) * rel_v / (inv_m_a + inv_m_b)
+            new_va = Velocity(
+                entity_a.velocity.vx,
+                entity_a.velocity.vy,
+                entity_a.velocity.vz + j * inv_m_a,
+            )
+            new_vb = Velocity(
+                entity_b.velocity.vx,
+                entity_b.velocity.vy,
+                entity_b.velocity.vz - j * inv_m_b if not entity_b.is_static else entity_b.velocity.vz,
+            )
 
-        # Apply impulse
-        new_vy_a = entity_a.velocity.vy + j / m_a
-        new_vy_b = entity_b.velocity.vy - j / m_b if not entity_b.is_static else entity_b.velocity.vy
-
-        return (
-            Velocity(entity_a.velocity.vx, new_vy_a, entity_a.velocity.vz),
-            Velocity(entity_b.velocity.vx, new_vy_b, entity_b.velocity.vz),
-        )
+        return new_va, new_vb
 
     def apply_impulse(
         self,
@@ -453,9 +484,13 @@ class UBPPhysicsEngineV3:
             )
             if collider_y is not None:
                 collisions.append(collider_y.entity_id)
-                # Resolve collision
-                vel_a, vel_b = self.resolve_collision(entity, collider_y)
+                # Resolve collision — both bodies get impulse
+                vel_a, vel_b = self.resolve_collision(entity, collider_y, axis='y')
                 entity.velocity = vel_a
+                if not collider_y.is_static:
+                    collider_y.velocity = vel_b
+                    collider_y.is_resting = False
+                    collider_y.is_sleeping = False
 
                 # Place entity on top of or below collider based on pre-collision direction
                 if pre_collision_vy < D0:
@@ -479,9 +514,12 @@ class UBPPhysicsEngineV3:
             if collider_x is not None:
                 collisions.append(collider_x.entity_id)
                 pre_vx = entity.velocity.vx
-                xor_vec = [a ^ b for a, b in zip(entity.golay_vector, collider_x.golay_vector)]
-                restitution = to_decimal(calculate_nrci(xor_vec))
-                entity.velocity.vx = -entity.velocity.vx * restitution
+                vel_a, vel_b = self.resolve_collision(entity, collider_x, axis='x')
+                entity.velocity = vel_a
+                if not collider_x.is_static:
+                    collider_x.velocity = vel_b
+                    collider_x.is_resting = False
+                    collider_x.is_sleeping = False
                 if pre_vx > D0:
                     new_x = collider_x.aabb().min_x - entity.size[0]
                 else:
@@ -498,9 +536,12 @@ class UBPPhysicsEngineV3:
             if collider_z is not None:
                 collisions.append(collider_z.entity_id)
                 pre_vz = entity.velocity.vz
-                xor_vec = [a ^ b for a, b in zip(entity.golay_vector, collider_z.golay_vector)]
-                restitution = to_decimal(calculate_nrci(xor_vec))
-                entity.velocity.vz = -entity.velocity.vz * restitution
+                vel_a, vel_b = self.resolve_collision(entity, collider_z, axis='z')
+                entity.velocity = vel_a
+                if not collider_z.is_static:
+                    collider_z.velocity = vel_b
+                    collider_z.is_resting = False
+                    collider_z.is_sleeping = False
                 if pre_vz > D0:
                     new_z = collider_z.aabb().min_z - entity.size[2]
                 else:

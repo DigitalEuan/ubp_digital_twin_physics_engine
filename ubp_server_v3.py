@@ -133,6 +133,7 @@ class UBPSimulationManager:
         self.space.add_fluid(fluid)
 
         self._entity_counter = len(self.space._entity_list)
+        self.is_running = True  # Auto-start so HUD counters begin immediately
         logger.info(f"Simulation reset: {len(self.space._entity_list)} entities, "
                     f"{sum(len(f.particles) for f in self.space._fluid_bodies)} fluid particles")
 
@@ -163,18 +164,49 @@ class UBPSimulationManager:
         return state
 
     def spawn_block(self, material: str, x: float, y: float, z: float) -> Optional[int]:
-        """Spawn a new block entity at the given position."""
+        """Spawn a new block entity at the given position, avoiding overlaps."""
         if self.space is None:
             return None
+        # Resolve spawn position: shift up until no overlap
+        from ubp_entity_v3 import AABB
+        test_x = D(str(x))
+        test_y = D(str(y))
+        test_z = D(str(z))
+        block_size = D('1')
+        for _ in range(20):  # max 20 attempts to find clear space
+            test_aabb = AABB(test_x, test_y, test_z,
+                             test_x + block_size, test_y + block_size, test_z + block_size)
+            overlap = any(
+                test_aabb.overlaps(e.aabb())
+                for e in self.space._entity_list
+            )
+            if not overlap:
+                break
+            test_y += block_size  # shift up by one block height
         self._entity_counter += 1
         label = f"{material.capitalize()}_{self._entity_counter}"
         block = EntityFactoryV3.make_block(
             label=label,
             material_name=material,
-            position=Position(D(str(x)), D(str(y)), D(str(z))),
+            position=Position(test_x, test_y, test_z),
         )
         self.space.add_entity(block)
         return block.entity_id
+
+    def delete_entity(self, entity_id: int) -> bool:
+        """Delete an entity from the simulation."""
+        if self.space is None:
+            return False
+        entity = self.space.get_entity(entity_id)
+        if entity is None or entity.is_static:
+            return False  # Cannot delete static entities (floor, walls)
+        # Remove from lever constraints if it's a lever
+        self.space.rigid_body.constraints = [
+            c for c in self.space.rigid_body.constraints
+            if c.lever.entity_id != entity_id
+        ]
+        self.space.remove_entity(entity_id)
+        return True
 
     def spawn_fluid(self, x: float, y: float, z: float) -> None:
         """Spawn a new fluid pool at the given position."""
@@ -195,6 +227,25 @@ class UBPSimulationManager:
         if self.space is None:
             return False
         return self.space.pull_entity(entity_id, fx, fy, fz)
+
+    def spawn_lever(
+        self, material: str, x: float, y: float, z: float, length: float = 8.0
+    ) -> Optional[int]:
+        """Spawn a lever entity with pivot at its centre."""
+        if self.space is None:
+            return None
+        self._entity_counter += 1
+        label = f"Lever_{self._entity_counter}"
+        lever = EntityFactoryV3.make_lever_arm(
+            label=label,
+            material_name=material,
+            length=length,
+            position=Position(D(str(x)), D(str(y)), D(str(z))),
+        )
+        # Pivot at the centre of the lever
+        pivot_x = x + length / 2.0
+        self.space.add_lever(lever, pivot_x=pivot_x, pivot_y=y + 0.1, pivot_z=z + 0.5)
+        return lever.entity_id
 
     def set_temperature(self, temperature_K: float) -> None:
         """Change the ambient temperature."""
@@ -349,6 +400,20 @@ async def websocket_endpoint(websocket: WebSocket):
                 sim.set_temperature(temp_K)
                 logger.info(f"Ambient temperature set to {temp_K} K")
 
+            elif cmd == "delete_entity":
+                eid = int(msg.get("entity_id", 0))
+                ok = sim.delete_entity(eid)
+                logger.info(f"Delete entity {eid} -> {ok}")
+
+            elif cmd == "add_lever":
+                mat = msg.get("material", "steel")
+                x = float(msg.get("x", 5))
+                y = float(msg.get("y", 1.2))
+                z = float(msg.get("z", 0))
+                length = float(msg.get("length", 8))
+                sim.spawn_lever(mat, x, y, z, length)
+                logger.info(f"Added lever at ({x},{y},{z}) length={length}")
+
             # Broadcast updated state after any command
             state = sim.get_state()
             await manager.broadcast(state)
@@ -384,6 +449,7 @@ class CommandRequest(BaseModel):
     fy: Optional[float] = 0.0
     fz: Optional[float] = 0.0
     temperature_K: Optional[float] = 293.15
+    length: Optional[float] = 8.0
 
 
 @app.post("/command")
@@ -410,6 +476,12 @@ async def post_command(req: CommandRequest):
         return JSONResponse(content={"ok": ok})
     elif cmd == "set_temperature":
         sim.set_temperature(req.temperature_K)
+    elif cmd == "delete_entity" and req.entity_id is not None:
+        ok = sim.delete_entity(req.entity_id)
+        return JSONResponse(content={"ok": ok})
+    elif cmd == "add_lever":
+        eid = sim.spawn_lever(req.material, req.x, req.y, req.z, req.length or 8.0)
+        return JSONResponse(content={"ok": True, "entity_id": eid})
     else:
         return JSONResponse(content={"ok": False, "error": f"Unknown command: {cmd}"}, status_code=400)
 

@@ -203,7 +203,12 @@ class UBPSpaceV3:
             physics_results.append(result)
 
         # ---- FLUID STEP ----
-        solid_entities = [e for e in self._entity_list if e.is_static or e.is_resting]
+        # Pass all non-fluid entities so water interacts with both static and moving blocks
+        solid_entities = [
+            e for e in self._entity_list
+            if e.entity_type not in (EntityType.FLUID_EMITTER,)
+            and e.material.phase_stp != 1  # exclude gas entities
+        ]
         for fluid in self._fluid_bodies:
             fluid.step(
                 solid_entities=solid_entities,
@@ -318,7 +323,7 @@ class UBPSpaceV3:
                 'entity_count': len(self._entity_list),
                 'fluid_particle_count': len(fluid_particles),
                 'avg_tick_ms': round(
-                    sum(self._tick_times[-60:]) / max(len(self._tick_times[-60:]), 1) * 1000, 2
+                    sum(self._tick_times[-60:]) / max(len(self._tick_times[-60:]), 1) * 1000, 3
                 ),
             },
         }
