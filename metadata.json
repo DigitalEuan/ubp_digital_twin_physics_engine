@@ -1,0 +1,5 @@
+{
+  "name": "Universal Binary Principle (UBP) Digital Twin v3.0 Physics Engine",
+  "description": "A deterministic, UBP-native physics simulation engine with full 3D Three.js rendering, composite material system, thermal properties, UBP-derived fluid SPH constants, and Topological Torque rigid body mechanics.\n- All constants from UBP geometric laws \n- Topological Torque Moment of Inertia \n- Composite Material System \n- Thermal Properties\n- Ambient Environment \n- Three.js Frontend\n\nUBP Physics Constants:\n| Constant | Value | Derivation |\n|---|---|---|\n| Y (Ontological Constant) | 0.26468 | UBP core (50-term π series) |\n| C_DRAG (air drag) | Y² = 0.07005 | LAW_ONTOLOGICAL_FRICTION_001 |\n| V_MAX (speed limit) | 1/Y = 3.778 | Substrate speed limit |\n| G_TICK (gravity/tick²) | G_earth × Y / 3600 | Equivalence Principle |\n| REST_THRESHOLD | SINK_L / 100 | 13D Sink leakage |\n| SPH_STIFFNESS | SINK_L × 24 / KISSING | LAW_INFORMATIONAL_SATURATION_001 |\n| SPH_VISCOSITY | Y / 96 | LAW_ONTOLOGICAL_FRICTION_001 |\n| SPH_SURFACE_TENSION | Y² / KISSING | LAW_COMP_001 |\n| BOLTZMANN_K (UBP) | Y × k_B_SI | Thermal bridge |",
+  "requestFramePermissions": []
+}

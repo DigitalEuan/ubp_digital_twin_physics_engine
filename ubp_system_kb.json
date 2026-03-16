@@ -1,0 +1,142 @@
+{
+  "ELEM_H_001": {
+    "ubp_id": "ELEM_H_001",
+    "lexicon": "Hydrogen",
+    "tags": ["element", "gas", "nonmetal"],
+    "fingerprint": "H",
+    "atlas": {
+      "vector": [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      "nrci_score": 0.0416,
+      "nrci": "1/24",
+      "tax": "1/24",
+      "weight": 1
+    },
+    "math": "Z=1|M=1.008|Rho=0.00008988|MP=14.01|BP=20.28|Phase_STP=1|Crystal=1"
+  },
+  "ELEM_C_006": {
+    "ubp_id": "ELEM_C_006",
+    "lexicon": "Carbon",
+    "tags": ["element", "solid", "nonmetal"],
+    "fingerprint": "C",
+    "atlas": {
+      "vector": [1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      "nrci_score": 0.25,
+      "nrci": "6/24",
+      "tax": "6/24",
+      "weight": 6
+    },
+    "math": "Z=6|M=12.011|Rho=2.267|MP=3800|BP=4300|Phase_STP=3|Crystal=1"
+  },
+  "ELEM_N_007": {
+    "ubp_id": "ELEM_N_007",
+    "lexicon": "Nitrogen",
+    "tags": ["element", "gas", "nonmetal"],
+    "fingerprint": "N",
+    "atlas": {
+      "vector": [1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      "nrci_score": 0.2916,
+      "nrci": "7/24",
+      "tax": "7/24",
+      "weight": 7
+    },
+    "math": "Z=7|M=14.007|Rho=0.0012506|MP=63.15|BP=77.36|Phase_STP=1|Crystal=1"
+  },
+  "ELEM_O_008": {
+    "ubp_id": "ELEM_O_008",
+    "lexicon": "Oxygen",
+    "tags": ["element", "gas", "nonmetal"],
+    "fingerprint": "O",
+    "atlas": {
+      "vector": [1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      "nrci_score": 0.3333,
+      "nrci": "8/24",
+      "tax": "8/24",
+      "weight": 8
+    },
+    "math": "Z=8|M=15.999|Rho=0.001429|MP=54.36|BP=90.20|Phase_STP=1|Crystal=1"
+  },
+  "ELEM_Na_011": {
+    "ubp_id": "ELEM_Na_011",
+    "lexicon": "Sodium",
+    "tags": ["element", "solid", "metal"],
+    "fingerprint": "Na",
+    "atlas": {
+      "vector": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      "nrci_score": 0.4583,
+      "nrci": "11/24",
+      "tax": "11/24",
+      "weight": 11
+    },
+    "math": "Z=11|M=22.990|Rho=0.968|MP=370.87|BP=1156|Phase_STP=3|Crystal=3"
+  },
+  "ELEM_Al_013": {
+    "ubp_id": "ELEM_Al_013",
+    "lexicon": "Aluminium",
+    "tags": ["element", "solid", "metal"],
+    "fingerprint": "Al",
+    "atlas": {
+      "vector": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      "nrci_score": 0.5416,
+      "nrci": "13/24",
+      "tax": "13/24",
+      "weight": 13
+    },
+    "math": "Z=13|M=26.982|Rho=2.70|MP=933.47|BP=2792|Phase_STP=3|Crystal=2"
+  },
+  "ELEM_Si_014": {
+    "ubp_id": "ELEM_Si_014",
+    "lexicon": "Silicon",
+    "tags": ["element", "solid", "metalloid"],
+    "fingerprint": "Si",
+    "atlas": {
+      "vector": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      "nrci_score": 0.5833,
+      "nrci": "14/24",
+      "tax": "14/24",
+      "weight": 14
+    },
+    "math": "Z=14|M=28.085|Rho=2.3290|MP=1687|BP=3538|Phase_STP=3|Crystal=2"
+  },
+  "ELEM_Fe_026": {
+    "ubp_id": "ELEM_Fe_026",
+    "lexicon": "Iron",
+    "tags": ["element", "solid", "metal"],
+    "fingerprint": "Fe",
+    "atlas": {
+      "vector": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+      "nrci_score": 1.0,
+      "nrci": "24/24",
+      "tax": "24/24",
+      "weight": 24
+    },
+    "math": "Z=26|M=55.845|Rho=7.874|MP=1811|BP=3134|Phase_STP=3|Crystal=3"
+  },
+  "ELEM_Cu_029": {
+    "ubp_id": "ELEM_Cu_029",
+    "lexicon": "Copper",
+    "tags": ["element", "solid", "metal"],
+    "fingerprint": "Cu",
+    "atlas": {
+      "vector": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+      "nrci_score": 1.0,
+      "nrci": "24/24",
+      "tax": "24/24",
+      "weight": 24
+    },
+    "math": "Z=29|M=63.546|Rho=8.96|MP=1357.77|BP=2835|Phase_STP=3|Crystal=2"
+  },
+  "ELEM_Au_079": {
+    "ubp_id": "ELEM_Au_079",
+    "lexicon": "Gold",
+    "tags": ["element", "solid", "metal"],
+    "fingerprint": "Au",
+    "atlas": {
+      "vector": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+      "nrci_score": 1.0,
+      "nrci": "24/24",
+      "tax": "24/24",
+      "weight": 24
+    },
+    "math": "Z=79|M=196.967|Rho=19.30|MP=1337.33|BP=3129|Phase_STP=3|Crystal=2"
+  }
+}
