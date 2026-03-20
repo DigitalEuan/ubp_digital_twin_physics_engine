@@ -1,11 +1,12 @@
-import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Grid } from '@react-three/drei';
 import * as THREE from 'three';
 import {
   Play, Pause, RotateCcw, Box as BoxIcon, Droplet, Activity,
   Trash2, ArrowRight, ArrowLeft, ArrowUp, ArrowDown,
-  ChevronRight, ChevronLeft, Layers,
+  ChevronRight, ChevronLeft, Layers, Building2, Zap,
+  Thermometer, Grid3X3, FlaskConical,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -41,6 +42,7 @@ interface EntityState {
 
 interface FluidParticleState {
   id: number;
+  body_id: number;
   type: string;
   material: string;
   position: Vec3;
@@ -59,6 +61,13 @@ interface LeverConstraintState {
   topological_cost: number;
 }
 
+interface FluidBodyInfo {
+  body_id: number;
+  material: string;
+  particle_count: number;
+  avg_y: number;
+}
+
 interface SimulationState {
   tick: number;
   time_s: number;
@@ -69,10 +78,12 @@ interface SimulationState {
   };
   entities: EntityState[];
   fluid_particles: FluidParticleState[];
+  fluid_bodies: FluidBodyInfo[];
   lever_constraints: LeverConstraintState[];
   stats: {
     entity_count: number;
     fluid_particle_count: number;
+    fluid_body_count: number;
     avg_tick_ms: number;
   };
 }
@@ -90,18 +101,20 @@ const EntityMesh = React.memo(({
   selected: boolean;
   onClick: (id: number) => void;
 }) => {
-  // Backend sends min-corner position; Three.js Box is centred.
   const cx = data.position.x + data.size.x / 2;
   const cy = data.position.y + data.size.y / 2;
   const cz = data.position.z + data.size.z / 2;
 
-  const rx = data.rotation.x;
-  const ry = data.rotation.y;
-  const rz = data.rotation.z;
+  const rx = data.rotation?.x ?? 0;
+  const ry = data.rotation?.y ?? 0;
+  const rz = data.rotation?.z ?? 0;
 
   const colour = data.colour || '#888888';
 
-  // Floor / static entities: semi-transparent
+  // Temperature-based emissive glow (hot = red glow)
+  const tempNorm = Math.min(Math.max((data.temperature_K - 293) / 500, 0), 1);
+  const emissiveColour = tempNorm > 0.05 ? `hsl(${Math.round(20 - tempNorm * 20)}, 100%, 40%)` : '#000000';
+
   if (data.is_static) {
     return (
       <mesh
@@ -126,14 +139,13 @@ const EntityMesh = React.memo(({
       <boxGeometry args={[data.size.x, data.size.y, data.size.z]} />
       <meshStandardMaterial
         color={selected ? '#ffffff' : colour}
-        emissive={selected ? colour : '#000000'}
-        emissiveIntensity={selected ? 0.4 : 0}
+        emissive={selected ? colour : emissiveColour}
+        emissiveIntensity={selected ? 0.4 : tempNorm * 0.8}
         roughness={0.6}
         metalness={
           data.material === 'iron' || data.material === 'steel' ? 0.8 : 0.3
         }
       />
-      {/* Selection outline */}
       {selected && (
         <lineSegments>
           <edgesGeometry args={[new THREE.BoxGeometry(data.size.x + 0.04, data.size.y + 0.04, data.size.z + 0.04)]} />
@@ -202,18 +214,14 @@ const LeverVisual = React.memo(({
   if (!entity) return null;
 
   const angle_rad = (constraint.angle_deg * Math.PI) / 180.0;
-
   const lx = entity.size.x;
   const ly = entity.size.y;
   const lz = entity.size.z;
-
   const px = constraint.pivot.x;
   const py = constraint.pivot.y;
   const pz = constraint.pivot.z;
-
   const ecx = entity.position.x + lx / 2 - px;
   const ecy = entity.position.y + ly / 2 - py;
-
   const cos_a = Math.cos(angle_rad);
   const sin_a = Math.sin(angle_rad);
   const rcx = ecx * cos_a - ecy * sin_a + px;
@@ -250,6 +258,40 @@ const PivotMarker = ({ pivot }: { pivot: Vec3 }) => (
 );
 
 // ---------------------------------------------------------------------------
+// CLICKABLE GRID PLANE — for block placement
+// ---------------------------------------------------------------------------
+
+const GridPlane = ({
+  visible,
+  onGridClick,
+  cellSize,
+}: {
+  visible: boolean;
+  onGridClick: (gridX: number, gridZ: number) => void;
+  cellSize: number;
+}) => {
+  if (!visible) return null;
+
+  return (
+    <mesh
+      position={[10, 1.002, 10]}
+      rotation={[-Math.PI / 2, 0, 0]}
+      onClick={(e) => {
+        e.stopPropagation();
+        const x = e.point.x;
+        const z = e.point.z;
+        const gx = Math.round(x / cellSize);
+        const gz = Math.round(z / cellSize);
+        onGridClick(gx, gz);
+      }}
+    >
+      <planeGeometry args={[40, 40]} />
+      <meshBasicMaterial color="#4488ff" transparent opacity={0.08} side={THREE.DoubleSide} />
+    </mesh>
+  );
+};
+
+// ---------------------------------------------------------------------------
 // SCENE — assembles all visual components
 // ---------------------------------------------------------------------------
 
@@ -257,10 +299,16 @@ const Scene = ({
   state,
   selectedId,
   onSelectEntity,
+  gridPlacementMode,
+  gridCellSize,
+  onGridClick,
 }: {
   state: SimulationState | null;
   selectedId: number | null;
   onSelectEntity: (id: number | null) => void;
+  gridPlacementMode: boolean;
+  gridCellSize: number;
+  onGridClick: (gx: number, gz: number) => void;
 }) => {
   if (!state) return null;
 
@@ -274,7 +322,6 @@ const Scene = ({
 
   return (
     <>
-      {/* Lighting */}
       <ambientLight intensity={0.4} />
       <directionalLight
         position={[15, 25, 15]}
@@ -284,7 +331,6 @@ const Scene = ({
       />
       <pointLight position={[-10, 10, -10]} intensity={0.3} color="#4488ff" />
 
-      {/* Ground grid — at y=1 (floor surface, not floor bottom) */}
       <Grid
         args={[40, 40]}
         position={[10, 1.001, 10]}
@@ -294,15 +340,24 @@ const Scene = ({
         infiniteGrid={false}
       />
 
-      {/* Deselect on background click */}
-      <mesh
-        position={[10, -5, 10]}
-        onClick={() => onSelectEntity(null)}
-        visible={false}
-      >
-        <planeGeometry args={[200, 200]} />
-        <meshBasicMaterial />
-      </mesh>
+      {/* Clickable grid for block placement */}
+      <GridPlane
+        visible={gridPlacementMode}
+        onGridClick={onGridClick}
+        cellSize={gridCellSize}
+      />
+
+      {/* Background deselect plane */}
+      {!gridPlacementMode && (
+        <mesh
+          position={[10, -5, 10]}
+          onClick={() => onSelectEntity(null)}
+          visible={false}
+        >
+          <planeGeometry args={[200, 200]} />
+          <meshBasicMaterial />
+        </mesh>
+      )}
 
       {/* Regular entities (non-lever) */}
       {(state.entities || [])
@@ -351,7 +406,7 @@ const ConnectionStatus = ({ connected }: { connected: boolean }) => (
 );
 
 // ---------------------------------------------------------------------------
-// ENTITY DATA CARD (with delete button)
+// ENTITY DATA CARD
 // ---------------------------------------------------------------------------
 
 const EntityCard = ({
@@ -364,64 +419,176 @@ const EntityCard = ({
   selected: boolean;
   onSelect: (id: number) => void;
   onDelete: (id: number) => void;
-}) => (
-  <div
-    className={`bg-slate-900 p-3 rounded-lg border text-xs font-mono space-y-1.5 cursor-pointer transition-colors ${
-      selected ? 'border-indigo-500 ring-1 ring-indigo-500/40' : 'border-slate-700 hover:border-slate-500'
-    }`}
-    onClick={() => onSelect(entity.id)}
-  >
-    <div className="flex justify-between items-center">
-      <span className="font-bold text-slate-200">{entity.label}</span>
-      <div className="flex items-center gap-1.5">
-        <span
-          className="px-1.5 py-0.5 rounded text-[10px]"
-          style={{ backgroundColor: entity.colour + '22', color: entity.colour }}
-        >
-          {entity.material}
-        </span>
-        {!entity.is_static && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onDelete(entity.id); }}
-            className="p-0.5 text-red-400/60 hover:text-red-400 transition-colors"
-            title="Delete entity"
+}) => {
+  const tempDelta = entity.temperature_K - 293.15;
+  const tempColour = tempDelta > 5 ? '#f97316' : tempDelta > 1 ? '#fbbf24' : '#94a3b8';
+
+  return (
+    <div
+      className={`bg-slate-900 p-3 rounded-lg border text-xs font-mono space-y-1.5 cursor-pointer transition-colors ${
+        selected ? 'border-indigo-500 ring-1 ring-indigo-500/40' : 'border-slate-700 hover:border-slate-500'
+      }`}
+      onClick={() => onSelect(entity.id)}
+    >
+      <div className="flex justify-between items-center">
+        <span className="font-bold text-slate-200">{entity.label}</span>
+        <div className="flex items-center gap-1.5">
+          <span
+            className="px-1.5 py-0.5 rounded text-[10px]"
+            style={{ backgroundColor: entity.colour + '22', color: entity.colour }}
           >
-            <Trash2 className="w-3 h-3" />
-          </button>
-        )}
+            {entity.material}
+          </span>
+          {!entity.is_static && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onDelete(entity.id); }}
+              className="p-0.5 text-red-400/60 hover:text-red-400 transition-colors"
+              title="Delete entity"
+            >
+              <Trash2 className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-slate-400">
+        <div>Mass: <span className="text-slate-300">{entity.mass.toFixed(3)}</span></div>
+        <div>NRCI: <span className="text-slate-300">{entity.nrci.toFixed(4)}</span></div>
+        <div>Temp: <span style={{ color: tempColour }}>{entity.temperature_K.toFixed(2)} K</span></div>
+        <div>Y: <span className="text-slate-300">{entity.position.y.toFixed(3)}</span></div>
+        <div>Vx: <span className="text-slate-300">{entity.velocity.x.toFixed(4)}</span></div>
+        <div>Vy: <span className="text-slate-300">{entity.velocity.y.toFixed(4)}</span></div>
+      </div>
+      <div className="flex gap-2 text-[10px]">
+        {entity.is_static && <span className="text-amber-400">STATIC</span>}
+        {entity.is_resting && <span className="text-emerald-400">AT REST</span>}
+        {selected && <span className="text-indigo-400">SELECTED</span>}
+        {tempDelta > 1 && <span style={{ color: tempColour }}>▲ HOT +{tempDelta.toFixed(1)}K</span>}
       </div>
     </div>
-    <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-slate-400">
-      <div>Mass: <span className="text-slate-300">{entity.mass.toFixed(3)}</span></div>
-      <div>NRCI: <span className="text-slate-300">{entity.nrci.toFixed(4)}</span></div>
-      <div>Temp: <span className="text-slate-300">{entity.temperature_K.toFixed(1)} K</span></div>
-      <div>Y: <span className="text-slate-300">{entity.position.y.toFixed(3)}</span></div>
-      <div>Vx: <span className="text-slate-300">{entity.velocity.x.toFixed(4)}</span></div>
-      <div>Vy: <span className="text-slate-300">{entity.velocity.y.toFixed(4)}</span></div>
-    </div>
-    <div className="flex gap-2 text-[10px]">
-      {entity.is_static && <span className="text-amber-400">STATIC</span>}
-      {entity.is_resting && <span className="text-emerald-400">AT REST</span>}
-      {selected && <span className="text-indigo-400">SELECTED</span>}
-    </div>
-  </div>
-);
+  );
+};
 
 // ---------------------------------------------------------------------------
-// LEVER DATA CARD
+// LEVER DATA CARD — with angle setter
 // ---------------------------------------------------------------------------
 
-const LeverCard = ({ constraint }: { constraint: LeverConstraintState }) => (
-  <div className="bg-slate-900 p-3 rounded-lg border border-amber-700/40 text-xs font-mono space-y-1.5">
+const LeverCard = ({
+  constraint,
+  onSetAngle,
+  onPush,
+}: {
+  constraint: LeverConstraintState;
+  onSetAngle: (leverId: number, angle: number) => void;
+  onPush: (leverId: number, fy: number, atX: number) => void;
+}) => {
+  const [targetAngle, setTargetAngle] = useState(0);
+  const [pushForce, setPushForce] = useState(2.0);
+  const [pushAtX, setPushAtX] = useState(constraint.pivot.x - 3);
+
+  return (
+    <div className="bg-slate-900 p-3 rounded-lg border border-amber-700/40 text-xs font-mono space-y-2">
+      <div className="flex justify-between items-center">
+        <span className="font-bold text-amber-300">Lever #{constraint.lever_id}</span>
+        <span className="text-slate-400">{constraint.angle_deg.toFixed(1)}°</span>
+      </div>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-slate-400">
+        <div>ω: <span className="text-slate-300">{constraint.angular_velocity.toFixed(4)}</span></div>
+        <div>Cost: <span className="text-slate-300">{constraint.topological_cost.toFixed(4)}</span></div>
+        <div>Pivot X: <span className="text-slate-300">{constraint.pivot.x.toFixed(2)}</span></div>
+        <div>Pivot Y: <span className="text-slate-300">{constraint.pivot.y.toFixed(2)}</span></div>
+      </div>
+
+      {/* Set angle */}
+      <div className="border-t border-slate-700 pt-2 space-y-1.5">
+        <div className="text-slate-400">Set angle (°)</div>
+        <div className="flex gap-2 items-center">
+          <input
+            type="range"
+            min={-45}
+            max={45}
+            step={1}
+            value={targetAngle}
+            onChange={e => setTargetAngle(parseInt(e.target.value))}
+            className="flex-1 accent-amber-500"
+          />
+          <span className="w-10 text-right text-slate-300">{targetAngle}°</span>
+        </div>
+        <button
+          onClick={() => onSetAngle(constraint.lever_id, targetAngle)}
+          className="w-full py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 rounded transition-colors"
+        >
+          Set Lever Angle
+        </button>
+      </div>
+
+      {/* Push lever */}
+      <div className="border-t border-slate-700 pt-2 space-y-1.5">
+        <div className="text-slate-400">Push lever</div>
+        <div className="flex gap-2 items-center text-[10px]">
+          <span className="text-slate-500 w-14">Force</span>
+          <input
+            type="range" min={0.5} max={10} step={0.5}
+            value={pushForce}
+            onChange={e => setPushForce(parseFloat(e.target.value))}
+            className="flex-1 accent-amber-500"
+          />
+          <span className="w-8 text-right text-slate-300">{pushForce}</span>
+        </div>
+        <div className="flex gap-2 items-center text-[10px]">
+          <span className="text-slate-500 w-14">At X</span>
+          <input
+            type="range" min={constraint.pivot.x - 6} max={constraint.pivot.x + 6} step={0.5}
+            value={pushAtX}
+            onChange={e => setPushAtX(parseFloat(e.target.value))}
+            className="flex-1 accent-amber-500"
+          />
+          <span className="w-8 text-right text-slate-300">{pushAtX.toFixed(1)}</span>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => onPush(constraint.lever_id, pushForce, pushAtX)}
+            className="flex-1 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 rounded transition-colors"
+          >
+            ↑ Push Up
+          </button>
+          <button
+            onClick={() => onPush(constraint.lever_id, -pushForce, pushAtX)}
+            className="flex-1 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 rounded transition-colors"
+          >
+            ↓ Push Down
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// FLUID BODY CARD — with delete button
+// ---------------------------------------------------------------------------
+
+const FluidBodyCard = ({
+  body,
+  onDelete,
+}: {
+  body: FluidBodyInfo;
+  onDelete: (bodyId: number) => void;
+}) => (
+  <div className="bg-slate-900 p-3 rounded-lg border border-blue-700/40 text-xs font-mono space-y-1.5">
     <div className="flex justify-between items-center">
-      <span className="font-bold text-amber-300">Lever #{constraint.lever_id}</span>
-      <span className="text-slate-400">Pivot</span>
+      <span className="font-bold text-blue-300">Fluid Body #{body.body_id}</span>
+      <button
+        onClick={() => onDelete(body.body_id)}
+        className="p-0.5 text-red-400/60 hover:text-red-400 transition-colors"
+        title="Delete fluid body"
+      >
+        <Trash2 className="w-3 h-3" />
+      </button>
     </div>
     <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-slate-400">
-      <div>Angle: <span className="text-slate-300">{constraint.angle_deg.toFixed(2)}°</span></div>
-      <div>ω: <span className="text-slate-300">{constraint.angular_velocity.toFixed(4)}</span></div>
-      <div>Cost: <span className="text-slate-300">{constraint.topological_cost.toFixed(4)}</span></div>
-      <div>Pivot Y: <span className="text-slate-300">{constraint.pivot.y.toFixed(2)}</span></div>
+      <div>Material: <span className="text-blue-300">{body.material}</span></div>
+      <div>Particles: <span className="text-slate-300">{body.particle_count}</span></div>
+      <div>Avg Y: <span className="text-slate-300">{body.avg_y.toFixed(2)}</span></div>
     </div>
   </div>
 );
@@ -455,77 +622,53 @@ const InteractionPanel = ({
         </span>
       </div>
 
-      {/* Force magnitude slider */}
       <div className="space-y-1">
         <div className="flex justify-between text-slate-400">
           <span>Force magnitude</span>
           <span className="text-slate-200 font-mono">{force.toFixed(1)}</span>
         </div>
         <input
-          type="range"
-          min={0.1}
-          max={5.0}
-          step={0.1}
+          type="range" min={0.1} max={50.0} step={0.5}
           value={force}
           onChange={e => setForce(parseFloat(e.target.value))}
           className="w-full accent-indigo-500"
         />
+        <div className="text-[10px] text-slate-500">
+          {force > 20 ? '⚠ High force — will generate heat on impact' : 'Normal force range'}
+        </div>
       </div>
 
-      {/* Directional push buttons */}
       <div className="space-y-1">
         <div className="text-slate-400 mb-1">Push direction</div>
-        {/* X axis */}
         <div className="flex gap-2 items-center">
           <span className="w-4 text-slate-500">X</span>
-          <button
-            onClick={() => onPush(-force, 0, 0)}
-            className="flex-1 flex items-center justify-center gap-1 py-1.5 bg-slate-700 hover:bg-slate-600 rounded text-slate-300 transition-colors"
-          >
+          <button onClick={() => onPush(-force, 0, 0)} className="flex-1 flex items-center justify-center gap-1 py-1.5 bg-slate-700 hover:bg-slate-600 rounded text-slate-300 transition-colors">
             <ChevronLeft className="w-3 h-3" /> −X
           </button>
-          <button
-            onClick={() => onPush(force, 0, 0)}
-            className="flex-1 flex items-center justify-center gap-1 py-1.5 bg-slate-700 hover:bg-slate-600 rounded text-slate-300 transition-colors"
-          >
+          <button onClick={() => onPush(force, 0, 0)} className="flex-1 flex items-center justify-center gap-1 py-1.5 bg-slate-700 hover:bg-slate-600 rounded text-slate-300 transition-colors">
             +X <ChevronRight className="w-3 h-3" />
           </button>
         </div>
-        {/* Y axis */}
         <div className="flex gap-2 items-center">
           <span className="w-4 text-slate-500">Y</span>
-          <button
-            onClick={() => onPush(0, -force, 0)}
-            className="flex-1 flex items-center justify-center gap-1 py-1.5 bg-slate-700 hover:bg-slate-600 rounded text-slate-300 transition-colors"
-          >
+          <button onClick={() => onPush(0, -force, 0)} className="flex-1 flex items-center justify-center gap-1 py-1.5 bg-slate-700 hover:bg-slate-600 rounded text-slate-300 transition-colors">
             <ArrowDown className="w-3 h-3" /> −Y
           </button>
-          <button
-            onClick={() => onPush(0, force, 0)}
-            className="flex-1 flex items-center justify-center gap-1 py-1.5 bg-slate-700 hover:bg-slate-600 rounded text-slate-300 transition-colors"
-          >
+          <button onClick={() => onPush(0, force, 0)} className="flex-1 flex items-center justify-center gap-1 py-1.5 bg-slate-700 hover:bg-slate-600 rounded text-slate-300 transition-colors">
             +Y <ArrowUp className="w-3 h-3" />
           </button>
         </div>
-        {/* Z axis */}
         <div className="flex gap-2 items-center">
           <span className="w-4 text-slate-500">Z</span>
-          <button
-            onClick={() => onPush(0, 0, -force)}
-            className="flex-1 flex items-center justify-center gap-1 py-1.5 bg-slate-700 hover:bg-slate-600 rounded text-slate-300 transition-colors"
-          >
+          <button onClick={() => onPush(0, 0, -force)} className="flex-1 flex items-center justify-center gap-1 py-1.5 bg-slate-700 hover:bg-slate-600 rounded text-slate-300 transition-colors">
             <ArrowLeft className="w-3 h-3" /> −Z
           </button>
-          <button
-            onClick={() => onPush(0, 0, force)}
-            className="flex-1 flex items-center justify-center gap-1 py-1.5 bg-slate-700 hover:bg-slate-600 rounded text-slate-300 transition-colors"
-          >
+          <button onClick={() => onPush(0, 0, force)} className="flex-1 flex items-center justify-center gap-1 py-1.5 bg-slate-700 hover:bg-slate-600 rounded text-slate-300 transition-colors">
             +Z <ArrowRight className="w-3 h-3" />
           </button>
         </div>
       </div>
 
-      {/* Delete button */}
       {!entity.is_static && (
         <button
           onClick={() => onDelete(entity.id)}
@@ -540,6 +683,71 @@ const InteractionPanel = ({
 };
 
 // ---------------------------------------------------------------------------
+// GRID PLACEMENT PANEL
+// ---------------------------------------------------------------------------
+
+const GridPlacementPanel = ({
+  active,
+  material,
+  onSetMaterial,
+  onToggle,
+  onCancel,
+}: {
+  active: boolean;
+  material: string;
+  onSetMaterial: (m: string) => void;
+  onToggle: () => void;
+  onCancel: () => void;
+}) => (
+  <div className={`rounded-lg border p-3 space-y-2 text-xs transition-colors ${
+    active ? 'border-emerald-500/50 bg-emerald-500/5' : 'border-slate-700 bg-slate-900/60'
+  }`}>
+    <div className="flex justify-between items-center">
+      <span className="font-semibold text-slate-300 flex items-center gap-2">
+        <Grid3X3 className="w-3.5 h-3.5" />
+        Grid Placement
+      </span>
+      {active && (
+        <span className="text-emerald-400 text-[10px] animate-pulse">● ACTIVE — click grid</span>
+      )}
+    </div>
+    <div className="flex gap-2">
+      {['iron', 'copper', 'gold', 'aluminium', 'silicon'].map(m => (
+        <button
+          key={m}
+          onClick={() => onSetMaterial(m)}
+          className={`flex-1 py-1 rounded text-[10px] transition-colors ${
+            material === m ? 'bg-indigo-500/30 text-indigo-300 border border-indigo-500/40' : 'bg-slate-700 text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          {m.slice(0, 2).toUpperCase()}
+        </button>
+      ))}
+    </div>
+    <div className="flex gap-2">
+      <button
+        onClick={onToggle}
+        className={`flex-1 py-1.5 rounded border transition-colors ${
+          active
+            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+            : 'bg-slate-700 text-slate-300 border-slate-600 hover:bg-slate-600'
+        }`}
+      >
+        {active ? 'Placing…' : 'Enable Grid Place'}
+      </button>
+      {active && (
+        <button
+          onClick={onCancel}
+          className="px-3 py-1.5 rounded border bg-red-500/10 text-red-400 border-red-500/30 hover:bg-red-500/20 transition-colors"
+        >
+          Cancel
+        </button>
+      )}
+    </div>
+  </div>
+);
+
+// ---------------------------------------------------------------------------
 // MAIN APP
 // ---------------------------------------------------------------------------
 
@@ -548,6 +756,9 @@ export default function App() {
   const [connected, setConnected] = useState(false);
   const [activeTab, setActiveTab] = useState<'controls' | 'data' | 'physics'>('controls');
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [gridPlacementMode, setGridPlacementMode] = useState(false);
+  const [gridMaterial, setGridMaterial] = useState('iron');
+  const [demoStatus, setDemoStatus] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
   // Reconnecting WebSocket
@@ -578,7 +789,6 @@ export default function App() {
       socket.onclose = () => {
         setConnected(false);
         wsRef.current = null;
-        console.log('[UBP] WebSocket disconnected — reconnecting in 2s');
         reconnectTimer = setTimeout(connect, 2000);
       };
 
@@ -589,7 +799,6 @@ export default function App() {
     };
 
     connect();
-
     return () => {
       clearTimeout(reconnectTimer);
       wsRef.current?.close();
@@ -614,11 +823,44 @@ export default function App() {
     setSelectedId(null);
   }, [sendCommand]);
 
+  const handleDeleteFluid = useCallback((bodyId: number) => {
+    sendCommand('delete_fluid', { body_id: bodyId });
+  }, [sendCommand]);
+
+  const handleDeleteAllFluid = useCallback(() => {
+    sendCommand('delete_fluid', {});
+  }, [sendCommand]);
+
   const handleSelectEntity = useCallback((id: number | null) => {
     setSelectedId(prev => (prev === id ? null : id));
   }, []);
 
-  // Find selected entity in state
+  const handleSetLeverAngle = useCallback((leverId: number, angle: number) => {
+    sendCommand('set_lever_angle', { lever_id: leverId, angle_deg: angle });
+  }, [sendCommand]);
+
+  const handlePushLever = useCallback((leverId: number, fy: number, atX: number) => {
+    sendCommand('push_lever', { lever_id: leverId, fx: 0, fy, at_x: atX });
+  }, [sendCommand]);
+
+  const handleGridClick = useCallback((gx: number, gz: number) => {
+    sendCommand('spawn_block_at_grid', {
+      grid_x: gx,
+      grid_z: gz,
+      material: gridMaterial,
+      y: 15.0,
+      cell_size: 1.0,
+    });
+    // Keep placement mode active for rapid building
+  }, [gridMaterial, sendCommand]);
+
+  const handleDemoDisplacement = useCallback(() => {
+    setDemoStatus('Setting up displacement demo…');
+    sendCommand('demo_displacement');
+    setTimeout(() => setDemoStatus('Demo running — watch the water!'), 1500);
+    setTimeout(() => setDemoStatus(null), 8000);
+  }, [sendCommand]);
+
   const selectedEntity = useMemo(() => {
     if (selectedId === null || !state) return null;
     return state.entities.find(e => e.id === selectedId) ?? null;
@@ -626,12 +868,15 @@ export default function App() {
 
   const isRunning = state?.is_running ?? false;
 
+  // Fluid bodies derived from particles
+  const fluidBodies: FluidBodyInfo[] = useMemo(() => {
+    return state?.fluid_bodies ?? [];
+  }, [state]);
+
   return (
     <div className="flex h-screen w-full bg-slate-900 text-slate-100 font-sans overflow-hidden">
 
-      {/* ------------------------------------------------------------------ */}
-      {/* 3D VIEWPORT                                                         */}
-      {/* ------------------------------------------------------------------ */}
+      {/* 3D VIEWPORT */}
       <div className="flex-1 relative">
         <Canvas
           shadows
@@ -642,15 +887,18 @@ export default function App() {
             state={state}
             selectedId={selectedId}
             onSelectEntity={handleSelectEntity}
+            gridPlacementMode={gridPlacementMode}
+            gridCellSize={1.0}
+            onGridClick={handleGridClick}
           />
           <OrbitControls makeDefault target={[10, 5, 5]} />
         </Canvas>
 
-        {/* HUD — top-left overlay */}
-        <div className="absolute top-4 left-4 bg-slate-900/85 backdrop-blur-sm p-4 rounded-xl border border-slate-700 shadow-lg pointer-events-none min-w-[220px]">
+        {/* HUD — top-left */}
+        <div className="absolute top-4 left-4 bg-slate-900/85 backdrop-blur-sm p-4 rounded-xl border border-slate-700 shadow-lg pointer-events-none min-w-[240px]">
           <div className="flex items-center gap-2 mb-3">
             <Activity className="w-5 h-5 text-emerald-400 flex-shrink-0" />
-            <h1 className="text-base font-bold text-white leading-tight">UBP Digital Twin v3.0</h1>
+            <h1 className="text-base font-bold text-white leading-tight">UBP Digital Twin v3.2</h1>
           </div>
           <div className="space-y-1 text-xs text-slate-300 font-mono">
             <div className="flex justify-between">
@@ -676,6 +924,10 @@ export default function App() {
               <span className="text-blue-400">{state?.stats?.fluid_particle_count ?? 0}</span>
             </div>
             <div className="flex justify-between">
+              <span className="text-slate-500">Fluid Bodies</span>
+              <span className="text-blue-400">{state?.stats?.fluid_body_count ?? 0}</span>
+            </div>
+            <div className="flex justify-between">
               <span className="text-slate-500">Avg Tick</span>
               <span className="text-amber-300">{(state?.stats?.avg_tick_ms ?? 0).toFixed(2)} ms</span>
             </div>
@@ -686,6 +938,20 @@ export default function App() {
           </div>
         </div>
 
+        {/* Grid placement mode indicator */}
+        {gridPlacementMode && (
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-emerald-500/20 backdrop-blur-sm px-4 py-2 rounded-xl border border-emerald-500/40 text-sm font-semibold text-emerald-300 pointer-events-none">
+            Grid Placement Mode — Click the floor to place a {gridMaterial} block
+          </div>
+        )}
+
+        {/* Demo status */}
+        {demoStatus && (
+          <div className="absolute top-16 left-1/2 -translate-x-1/2 bg-indigo-500/20 backdrop-blur-sm px-4 py-2 rounded-xl border border-indigo-500/40 text-sm font-semibold text-indigo-300 pointer-events-none">
+            {demoStatus}
+          </div>
+        )}
+
         {/* Selected entity mini-HUD — bottom-left */}
         {selectedEntity && (
           <div className="absolute bottom-14 left-4 bg-slate-900/90 backdrop-blur-sm px-3 py-2 rounded-lg border border-indigo-500/40 text-xs font-mono pointer-events-none">
@@ -693,6 +959,9 @@ export default function App() {
             <span className="text-white">{selectedEntity.label}</span>
             <span className="text-slate-400 ml-2">
               ({selectedEntity.position.x.toFixed(1)}, {selectedEntity.position.y.toFixed(1)}, {selectedEntity.position.z.toFixed(1)})
+            </span>
+            <span className="text-orange-400 ml-2">
+              {selectedEntity.temperature_K.toFixed(1)} K
             </span>
           </div>
         )}
@@ -703,9 +972,7 @@ export default function App() {
         </div>
       </div>
 
-      {/* ------------------------------------------------------------------ */}
-      {/* SIDEBAR                                                             */}
-      {/* ------------------------------------------------------------------ */}
+      {/* SIDEBAR */}
       <div className="w-80 bg-slate-800 border-l border-slate-700 flex flex-col">
 
         {/* Play / Pause / Reset */}
@@ -723,7 +990,7 @@ export default function App() {
               {isRunning ? 'Pause' : 'Play'}
             </button>
             <button
-              onClick={() => { sendCommand('reset'); setSelectedId(null); }}
+              onClick={() => { sendCommand('reset'); setSelectedId(null); setGridPlacementMode(false); setDemoStatus(null); }}
               className="p-2.5 bg-slate-700 text-slate-300 hover:bg-slate-600 rounded-lg transition-colors border border-slate-600"
               title="Reset Simulation"
             >
@@ -764,6 +1031,15 @@ export default function App() {
                 />
               )}
 
+              {/* Grid Placement */}
+              <GridPlacementPanel
+                active={gridPlacementMode}
+                material={gridMaterial}
+                onSetMaterial={setGridMaterial}
+                onToggle={() => setGridPlacementMode(v => !v)}
+                onCancel={() => setGridPlacementMode(false)}
+              />
+
               {/* Spawn Entities */}
               <div>
                 <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Spawn Entities</h3>
@@ -777,8 +1053,7 @@ export default function App() {
                     <button
                       key={material}
                       onClick={() => sendCommand('spawn_block', {
-                        material,
-                        y,
+                        material, y,
                         x: 5 + Math.random() * 10,
                         z: Math.random() * 4 - 2,
                       })}
@@ -802,6 +1077,15 @@ export default function App() {
                     <span>Spawn Water Pool</span>
                   </button>
 
+                  {/* Delete all fluid */}
+                  <button
+                    onClick={handleDeleteAllFluid}
+                    className="flex flex-col items-center gap-2 p-3 bg-slate-700/50 hover:bg-red-900/30 rounded-lg border border-slate-600 hover:border-red-500/40 transition-colors text-xs col-span-2"
+                  >
+                    <Trash2 className="w-5 h-5 text-red-400" />
+                    <span>Delete All Fluid</span>
+                  </button>
+
                   {/* Spawn Lever */}
                   <button
                     onClick={() => sendCommand('add_lever', {
@@ -815,6 +1099,40 @@ export default function App() {
                   >
                     <Layers className="w-5 h-5 text-amber-400" />
                     <span>Spawn Steel Lever</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Building Tools */}
+              <div>
+                <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Building Tools</h3>
+                <div className="space-y-2">
+                  <button
+                    onClick={() => sendCommand('build_demo_building', {
+                      x: 3, z: 3, width: 6, depth: 6, height: 8,
+                      wall_thickness: 1, material: 'silicon',
+                    })}
+                    className="w-full flex items-center gap-3 p-2.5 bg-slate-700/50 hover:bg-slate-700 rounded-lg border border-slate-600 transition-colors text-xs text-left"
+                  >
+                    <Building2 className="w-4 h-4 text-slate-300 flex-shrink-0" />
+                    <span>Build Hollow Building (6×6×8)</span>
+                  </button>
+                  <button
+                    onClick={() => sendCommand('fill_building_with_water', {
+                      x: 3, z: 3, width: 6, depth: 6, height: 8,
+                      wall_thickness: 1, fill_height: 5,
+                    })}
+                    className="w-full flex items-center gap-3 p-2.5 bg-slate-700/50 hover:bg-slate-700 rounded-lg border border-slate-600 transition-colors text-xs text-left"
+                  >
+                    <FlaskConical className="w-4 h-4 text-blue-400 flex-shrink-0" />
+                    <span>Fill Building with Water</span>
+                  </button>
+                  <button
+                    onClick={handleDemoDisplacement}
+                    className="w-full flex items-center gap-3 p-2.5 bg-indigo-500/10 hover:bg-indigo-500/20 rounded-lg border border-indigo-500/30 transition-colors text-xs text-left"
+                  >
+                    <Zap className="w-4 h-4 text-indigo-400 flex-shrink-0" />
+                    <span className="text-indigo-300 font-semibold">Run Displacement Demo</span>
                   </button>
                 </div>
               </div>
@@ -840,14 +1158,15 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Usage hint */}
+              {/* Usage hints */}
               <div className="bg-slate-900/60 rounded-lg border border-slate-700 p-3 text-xs text-slate-500 space-y-1">
                 <div className="text-slate-400 font-semibold mb-1">How to interact</div>
-                <div>• Click any block in the 3D view to select it</div>
-                <div>• Use the push buttons above to apply forces</div>
-                <div>• Place a block on a lever to tip it</div>
-                <div>• Spawn water, then build walls to contain it</div>
-                <div>• Delete unwanted entities with the trash icon</div>
+                <div>• Click any block to select it, then push it</div>
+                <div>• Enable Grid Place, then click the floor grid</div>
+                <div>• High force (20+) generates heat on impact</div>
+                <div>• Use Lever cards in Data tab to set angle</div>
+                <div>• Build → Fill → Demo for displacement test</div>
+                <div>• Delete individual fluid bodies in Data tab</div>
               </div>
             </>
           )}
@@ -865,14 +1184,42 @@ export default function App() {
                   onDelete={handleDelete}
                 />
               ))}
+
               {(state?.lever_constraints ?? []).length > 0 && (
                 <>
                   <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mt-2">Lever Constraints</h3>
                   {(state?.lever_constraints ?? []).map(c => (
-                    <LeverCard key={c.lever_id} constraint={c} />
+                    <LeverCard
+                      key={c.lever_id}
+                      constraint={c}
+                      onSetAngle={handleSetLeverAngle}
+                      onPush={handlePushLever}
+                    />
                   ))}
                 </>
               )}
+
+              {fluidBodies.length > 0 && (
+                <>
+                  <div className="flex justify-between items-center mt-2">
+                    <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Fluid Bodies</h3>
+                    <button
+                      onClick={handleDeleteAllFluid}
+                      className="text-[10px] text-red-400/70 hover:text-red-400 flex items-center gap-1"
+                    >
+                      <Trash2 className="w-3 h-3" /> Delete All
+                    </button>
+                  </div>
+                  {fluidBodies.map(b => (
+                    <FluidBodyCard
+                      key={b.body_id}
+                      body={b}
+                      onDelete={handleDeleteFluid}
+                    />
+                  ))}
+                </>
+              )}
+
               {!state && (
                 <p className="text-slate-500 text-xs">No data yet — connect to the simulation.</p>
               )}
@@ -903,46 +1250,76 @@ export default function App() {
                 </div>
               </div>
               <div className="bg-slate-900 p-3 rounded-lg border border-slate-700 text-xs font-mono space-y-1.5">
-                <div className="text-slate-500 mb-2">Material Restitution (XOR Smash)</div>
+                <div className="text-slate-500 mb-2">Collision (Continuous Detection)</div>
                 <div className="text-slate-400 text-[10px] leading-relaxed">
-                  Restitution = NRCI(A⊕B) where A,B are Golay codewords.
-                  Each material pair has a unique bounce coefficient derived
-                  from the Hamming distance in the Leech Lattice.
+                  V3.2 uses swept-AABB continuous collision detection. Every
+                  tick, each entity's swept volume is tested against all others,
+                  preventing tunnelling at any velocity. Restitution is derived
+                  from the Hamming distance between Golay codewords of the two
+                  colliding materials.
+                </div>
+              </div>
+              <div className="bg-slate-900 p-3 rounded-lg border border-slate-700 text-xs font-mono space-y-1.5">
+                <div className="text-slate-500 mb-2">Thermal (Kinetic→Heat)</div>
+                <div className="text-slate-400 text-[10px] leading-relaxed">
+                  On impact, kinetic energy ½mv² is partially converted to
+                  thermal energy via ΔT = KE × (1−e) / (m × Cp), where e is
+                  the restitution coefficient and Cp is the UBP heat capacity.
+                  A 50 N force impact raises temperature by ~222 K.
                 </div>
                 {selectedEntity && (
                   <div className="mt-2 border-t border-slate-700 pt-2">
                     <div className="text-slate-500 mb-1">Selected entity</div>
                     <div className="flex justify-between">
                       <span className="text-slate-400">{selectedEntity.label}</span>
-                      <span className="text-indigo-400">NRCI {selectedEntity.nrci.toFixed(4)}</span>
+                      <span className="text-orange-400">{selectedEntity.temperature_K.toFixed(2)} K</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">NRCI</span>
+                      <span className="text-indigo-400">{selectedEntity.nrci.toFixed(4)}</span>
                     </div>
                   </div>
                 )}
               </div>
               <div className="bg-slate-900 p-3 rounded-lg border border-slate-700 text-xs font-mono space-y-1.5">
-                <div className="text-slate-500 mb-2">Fluid (Kissing/Sink-derived)</div>
+                <div className="text-slate-500 mb-2">Fluid SPH (UBP-derived)</div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Smoothing h</span>
+                  <span className="text-blue-400">Y_INV / 3 ≈ 1.26</span>
+                </div>
                 <div className="flex justify-between">
                   <span className="text-slate-400">Pressure k</span>
                   <span className="text-blue-400">SINK×24/KISSING</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Viscosity</span>
+                  <span className="text-slate-400">Viscosity μ</span>
                   <span className="text-blue-400">Y/96</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-400">Surface σ</span>
-                  <span className="text-blue-400">Y²/KISSING</span>
+                  <span className="text-blue-400">Y²/KISSING_NORM</span>
+                </div>
+                <div className="text-slate-400 text-[10px] mt-1 leading-relaxed">
+                  Cohesion: molecules attract via surface tension kernel.
+                  Two-way coupling: fluid pushes back on solid bodies.
+                  Cross-body SPH: all fluid bodies interact with each other.
                 </div>
               </div>
               <div className="bg-slate-900 p-3 rounded-lg border border-slate-700 text-xs font-mono space-y-1.5">
-                <div className="text-slate-500 mb-2">Rigid Body (Topological Torque)</div>
+                <div className="text-slate-500 mb-2">Lever (Topological Torque)</div>
                 <div className="flex justify-between">
                   <span className="text-slate-400">I = m×L²/12</span>
                   <span className="text-amber-400">×(1+NRCI)×Vol</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Hamming Damp</span>
+                  <span className="text-slate-400">Damping</span>
                   <span className="text-amber-400">C_DRAG = Y²</span>
+                </div>
+                <div className="text-slate-400 text-[10px] mt-1 leading-relaxed">
+                  Lever angle can be set directly via slider in Data tab.
+                  Blocks placed on the lever arm create torque proportional
+                  to mass × distance from pivot. The lever will tip and the
+                  block will roll or slide depending on its NRCI.
                 </div>
               </div>
               <div className="bg-slate-900 p-3 rounded-lg border border-slate-700 text-xs font-mono space-y-1.5">

@@ -1,22 +1,22 @@
 """
 ================================================================================
-UBP SPACE v3.0 — The Digital Twin World
+UBP SPACE v3.2 — The Digital Twin World
 ================================================================================
-The world container for the V3 UBP Digital Twin simulation.
-
-Manages:
-  - All solid entities (blocks, floor, walls, lever arms)
-  - All fluid bodies (SPH water pools)
-  - The ambient environment (temperature, air density, pressure)
-  - The physics engine (gravity, drag, friction, collision)
-  - The rigid body engine (lever constraints, torque)
-  - The simulation tick loop
-  - State serialisation for Three.js rendering
+V3.2 Additions:
+  - delete_fluid(body_id) — remove a specific fluid body or all fluid
+  - set_lever_angle(lever_id, angle_deg) — directly position a lever
+  - push_lever(lever_id, force_x, force_y, at_x) — push as torque
+  - spawn_wall(x, y, z, width, height, depth) — create a wall entity
+  - build_demo_building(x, z, width, depth, height) — hollow building
+  - spawn_block_at_grid(grid_x, grid_z, material, y) — grid placement
+  - Fluid step passes all_fluid_bodies for cross-body SPH interaction
+  - Lever arms no longer skipped in physics step (participate in gravity)
 ================================================================================
 """
 
 from __future__ import annotations
 import json
+import math
 import time
 from decimal import Decimal, getcontext
 from typing import Any, Dict, List, Optional, Tuple
@@ -39,10 +39,7 @@ _SINK_L = to_decimal(SINK_L)
 
 class UBPSpaceV3:
     """
-    The V3 UBP Digital Twin simulation space.
-
-    A 3D world with UBP-deterministic physics, composite materials,
-    thermal properties, lever mechanics, and SPH fluid simulation.
+    The V3.2 UBP Digital Twin simulation space.
     """
 
     def __init__(
@@ -56,121 +53,220 @@ class UBPSpaceV3:
         self.width = width
         self.height = height
         self.depth = depth
-
-        # Ambient environment
         self.ambient = AmbientEnvironment(temperature_K=temperature_K)
-
-        # Entity registry
         self._entities: Dict[int, UBPEntityV3] = {}
-        self._entity_list: List[UBPEntityV3] = []  # Ordered list for physics
-
-        # Fluid bodies
+        self._entity_list: List[UBPEntityV3] = []
         self._fluid_bodies: List[FluidBodyV3] = []
-
-        # Physics engine
         self.physics = UBPPhysicsEngineV3(ambient=self.ambient)
-
-        # Rigid body engine
         self.rigid_body = UBPRigidBodyEngineV3()
-
-        # Simulation state
         self.tick: int = 0
         self.time_seconds: float = 0.0
         self.ticks_per_second: int = 60
-
-        # Space bounds for fluid
         self._space_bounds = (0.0, width, 1.0, height, 0.0, depth)
+        self._tick_times: List[float] = []
 
-        # Create floor
         if include_floor:
             floor = EntityFactoryV3.make_floor(
-                label='Floor',
-                width=width,
-                depth=depth,
+                label='Floor', width=width, depth=depth,
                 position=Position(D0, D0, D0),
             )
             self.add_entity(floor)
-
-        # Performance tracking
-        self._tick_times: List[float] = []
 
     # -----------------------------------------------------------------------
     # ENTITY MANAGEMENT
     # -----------------------------------------------------------------------
 
     def add_entity(self, entity: UBPEntityV3) -> UBPEntityV3:
-        """Add an entity to the space."""
         self._entities[entity.entity_id] = entity
         self._entity_list.append(entity)
         return entity
 
     def remove_entity(self, entity_id: int) -> None:
-        """Remove an entity from the space."""
         if entity_id in self._entities:
             entity = self._entities.pop(entity_id)
             self._entity_list.remove(entity)
+            # Also remove any lever constraints for this entity
+            self.rigid_body.constraints = [
+                c for c in self.rigid_body.constraints
+                if c.lever.entity_id != entity_id
+            ]
 
     def get_entity(self, entity_id: int) -> Optional[UBPEntityV3]:
-        """Get an entity by ID."""
         return self._entities.get(entity_id)
 
     def get_entity_by_label(self, label: str) -> Optional[UBPEntityV3]:
-        """Get an entity by label."""
         for e in self._entity_list:
             if e.label == label:
                 return e
         return None
 
     def add_fluid(self, fluid: FluidBodyV3) -> FluidBodyV3:
-        """Add a fluid body to the space."""
         self._fluid_bodies.append(fluid)
         return fluid
 
+    def delete_fluid(self, body_id: Optional[int] = None) -> int:
+        """
+        Delete a fluid body by ID, or all fluid bodies if body_id is None.
+        Returns the number of bodies removed.
+        """
+        if body_id is None:
+            count = len(self._fluid_bodies)
+            self._fluid_bodies.clear()
+            return count
+        before = len(self._fluid_bodies)
+        self._fluid_bodies = [f for f in self._fluid_bodies if f.body_id != body_id]
+        return before - len(self._fluid_bodies)
+
     def add_lever(
-        self,
-        lever_entity: UBPEntityV3,
-        pivot_x: float,
-        pivot_y: float,
-        pivot_z: float,
+        self, lever_entity: UBPEntityV3,
+        pivot_x: float, pivot_y: float, pivot_z: float,
     ) -> PivotConstraintV3:
-        """Add a lever entity with a pivot constraint."""
         self.add_entity(lever_entity)
         constraint = self.rigid_body.add_lever(lever_entity, pivot_x, pivot_y, pivot_z)
         return constraint
+
+    def spawn_wall(
+        self,
+        x: float, y: float, z: float,
+        width: float = 1.0, height: float = 5.0, depth: float = 1.0,
+        material_name: str = 'silicon',
+        label: Optional[str] = None,
+    ) -> UBPEntityV3:
+        """Spawn a static wall entity at the given position."""
+        wall_label = label or f'Wall_{len(self._entity_list)}'
+        wall = EntityFactoryV3.make_wall(
+            label=wall_label,
+            width=width, height=height, depth=depth,
+            material_name=material_name,
+            position=Position(D(str(x)), D(str(y)), D(str(z))),
+        )
+        self.add_entity(wall)
+        return wall
+
+    def build_demo_building(
+        self,
+        x: float = 5.0, z: float = 5.0,
+        width: float = 6.0, depth: float = 6.0,
+        height: float = 8.0,
+        wall_thickness: float = 1.0,
+        material_name: str = 'silicon',
+    ) -> List[UBPEntityV3]:
+        """
+        Build a hollow building (4 walls, no roof) at the given position.
+        Returns the list of wall entities created.
+
+        The building sits on the floor (y=1.0 — floor is 1 unit thick).
+        """
+        walls = []
+        y_base = 1.0  # Floor top surface
+
+        # Front wall (z = z)
+        walls.append(self.spawn_wall(
+            x=x, y=y_base, z=z,
+            width=width, height=height, depth=wall_thickness,
+            material_name=material_name, label='Building_Front',
+        ))
+        # Back wall (z = z + depth - thickness)
+        walls.append(self.spawn_wall(
+            x=x, y=y_base, z=z + depth - wall_thickness,
+            width=width, height=height, depth=wall_thickness,
+            material_name=material_name, label='Building_Back',
+        ))
+        # Left wall (x = x)
+        walls.append(self.spawn_wall(
+            x=x, y=y_base, z=z + wall_thickness,
+            width=wall_thickness, height=height, depth=depth - 2*wall_thickness,
+            material_name=material_name, label='Building_Left',
+        ))
+        # Right wall (x = x + width - thickness)
+        walls.append(self.spawn_wall(
+            x=x + width - wall_thickness, y=y_base, z=z + wall_thickness,
+            width=wall_thickness, height=height, depth=depth - 2*wall_thickness,
+            material_name=material_name, label='Building_Right',
+        ))
+        return walls
+
+    def fill_building_with_water(
+        self,
+        x: float, z: float,
+        width: float, depth: float,
+        height: float,
+        wall_thickness: float = 1.0,
+        fill_height: int = 3,
+    ) -> FluidBodyV3:
+        """
+        Fill the interior of a building with water.
+        The interior starts at x+wall_thickness, z+wall_thickness.
+        """
+        fluid = FluidBodyV3(material_name='water')
+        interior_x = x + wall_thickness + 0.1
+        interior_z = z + wall_thickness + 0.1
+        interior_w = max(1, int((width - 2*wall_thickness) / 0.35))
+        interior_d = max(1, int((depth - 2*wall_thickness) / 0.35))
+        fluid.emit_pool(
+            origin_x=interior_x,
+            origin_y=1.1,  # Just above floor
+            origin_z=interior_z,
+            width=interior_w,
+            height=fill_height,
+            depth=interior_d,
+            spacing=0.35,
+        )
+        self.add_fluid(fluid)
+        return fluid
+
+    def spawn_block_at_grid(
+        self,
+        grid_x: int, grid_z: int,
+        material_name: str = 'iron',
+        y: float = 15.0,
+        grid_cell_size: float = 1.0,
+    ) -> UBPEntityV3:
+        """
+        Spawn a block at a specific grid cell position.
+        Grid coordinates map to world coordinates: world_x = grid_x * cell_size.
+        """
+        world_x = float(grid_x) * grid_cell_size
+        world_z = float(grid_z) * grid_cell_size
+        block = EntityFactoryV3.make_block(
+            label=f'{material_name.capitalize()}_{grid_x}_{grid_z}',
+            material_name=material_name,
+            position=Position(D(str(world_x)), D(str(y)), D(str(world_z))),
+        )
+        self.add_entity(block)
+        return block
 
     # -----------------------------------------------------------------------
     # FORCE APPLICATION
     # -----------------------------------------------------------------------
 
     def push_entity(
-        self,
-        entity_id: int,
-        force_x: float = 0.0,
-        force_y: float = 0.0,
-        force_z: float = 0.0,
+        self, entity_id: int,
+        force_x: float = 0.0, force_y: float = 0.0, force_z: float = 0.0,
     ) -> bool:
-        """Apply a push force to an entity."""
         entity = self.get_entity(entity_id)
         if entity is None or entity.is_static:
             return False
+        # V3.2: If entity is a lever arm, convert to torque
+        if entity.entity_type == EntityType.LEVER_ARM:
+            at_x = float(entity.position.x) + float(entity.size[0]) / 2
+            return self.rigid_body.push_lever(entity_id, force_x, force_y, at_x)
         self.physics.apply_impulse(
-            entity,
-            D(str(force_x)), D(str(force_y)), D(str(force_z))
+            entity, D(str(force_x)), D(str(force_y)), D(str(force_z))
         )
         return True
 
     def pull_entity(
-        self,
-        entity_id: int,
-        force_x: float = 0.0,
-        force_y: float = 0.0,
-        force_z: float = 0.0,
+        self, entity_id: int,
+        force_x: float = 0.0, force_y: float = 0.0, force_z: float = 0.0,
     ) -> bool:
-        """Apply a pull force to an entity (negative push)."""
         return self.push_entity(entity_id, -force_x, -force_y, -force_z)
 
+    def set_lever_angle(self, lever_id: int, angle_deg: float) -> bool:
+        """Directly set a lever's angle in degrees."""
+        return self.rigid_body.set_lever_angle(lever_id, angle_deg)
+
     def set_ambient_temperature(self, temperature_K: float) -> None:
-        """Change the ambient temperature of the space."""
         self.ambient = AmbientEnvironment(temperature_K=temperature_K)
         self.physics.update_ambient(self.ambient)
 
@@ -179,41 +275,34 @@ class UBPSpaceV3:
     # -----------------------------------------------------------------------
 
     def step(self) -> Dict[str, Any]:
-        """
-        Advance the simulation by one tick.
-
-        Returns a summary of the tick for debugging and rendering.
-        """
         t_start = time.perf_counter()
 
-        # ---- RIGID BODY STEP (before physics so lever position is updated) ----
-        torque_results = self.rigid_body.step(
-            self._entity_list, _G_PER_TICK_SQ
-        )
+        # ---- RIGID BODY STEP ----
+        torque_results = self.rigid_body.step(self._entity_list, _G_PER_TICK_SQ)
 
-        # ---- PHYSICS STEP (all non-static entities) ----
+        # ---- PHYSICS STEP ----
         physics_results = []
         for entity in self._entity_list:
             if entity.is_static:
                 continue
-            # Skip lever arms (managed by rigid body engine)
+            # V3.2: Lever arms are managed by rigid body engine, skip linear physics
             if entity.entity_type == EntityType.LEVER_ARM:
                 continue
             result = self.physics.step(entity, self._entity_list, self.tick)
             physics_results.append(result)
 
         # ---- FLUID STEP ----
-        # Pass all non-fluid entities so water interacts with both static and moving blocks
         solid_entities = [
             e for e in self._entity_list
             if e.entity_type not in (EntityType.FLUID_EMITTER,)
-            and e.material.phase_stp != 1  # exclude gas entities
+            and e.material.phase_stp != 1
         ]
         for fluid in self._fluid_bodies:
             fluid.step(
                 solid_entities=solid_entities,
                 space_bounds=self._space_bounds,
                 ambient_temperature_ubp=float(self.ambient.temperature_ubp),
+                all_fluid_bodies=self._fluid_bodies,  # V3.2: cross-body interaction
             )
 
         # ---- ADVANCE TICK ----
@@ -233,15 +322,10 @@ class UBPSpaceV3:
         }
 
     def run_ticks(self, n: int) -> None:
-        """Run n ticks of the simulation."""
         for _ in range(n):
             self.step()
 
     def run_until_stable(self, max_ticks: int = 5000) -> int:
-        """
-        Run until all solid entities are at rest, or max_ticks is reached.
-        Returns the number of ticks taken.
-        """
         for i in range(max_ticks):
             self.step()
             if self._all_solid_at_rest():
@@ -249,7 +333,6 @@ class UBPSpaceV3:
         return max_ticks
 
     def _all_solid_at_rest(self) -> bool:
-        """Check if all non-static solid entities are at rest."""
         for entity in self._entity_list:
             if entity.is_static:
                 continue
@@ -264,7 +347,6 @@ class UBPSpaceV3:
     # -----------------------------------------------------------------------
 
     def get_state(self) -> Dict[str, Any]:
-        """Return the full simulation state as a dictionary."""
         return {
             'tick': self.tick,
             'time_s': self.time_seconds,
@@ -277,6 +359,7 @@ class UBPSpaceV3:
             'entities': [e.to_dict() for e in self._entity_list],
             'fluid_bodies': [
                 {
+                    'body_id': f.body_id,
                     'material': f.material_name,
                     'particle_count': f.particle_count(),
                     'particles': f.get_state(),
@@ -287,20 +370,22 @@ class UBPSpaceV3:
         }
 
     def get_threejs_state(self) -> Dict[str, Any]:
-        """
-        Return the simulation state formatted for Three.js rendering.
-
-        This is the primary output for the Three.js frontend.
-        """
         entities = [e.to_threejs_state() for e in self._entity_list]
 
         fluid_particles = []
+        fluid_body_info = []
         for fluid in self._fluid_bodies:
             fluid_particles.extend(fluid.get_threejs_state())
+            fluid_body_info.append({
+                'body_id': fluid.body_id,
+                'particle_count': fluid.particle_count(),
+                'material': fluid.material_name,
+                'avg_y': round(fluid.average_y(), 3),
+                'max_y': round(fluid.max_y(), 3),
+            })
 
         lever_states = []
         for c in self.rigid_body.constraints:
-            import math
             lever_states.append({
                 'lever_id': c.lever.entity_id,
                 'angle_deg': float(c.angle) * 180.0 / math.pi,
@@ -318,10 +403,12 @@ class UBPSpaceV3:
             },
             'entities': entities,
             'fluid_particles': fluid_particles,
+            'fluid_bodies': fluid_body_info,
             'lever_constraints': lever_states,
             'stats': {
                 'entity_count': len(self._entity_list),
                 'fluid_particle_count': len(fluid_particles),
+                'fluid_body_count': len(self._fluid_bodies),
                 'avg_tick_ms': round(
                     sum(self._tick_times[-60:]) / max(len(self._tick_times[-60:]), 1) * 1000, 3
                 ),
@@ -329,22 +416,18 @@ class UBPSpaceV3:
         }
 
     def get_threejs_state_json(self) -> str:
-        """Return the Three.js state as a JSON string."""
         return json.dumps(self.get_threejs_state())
 
     def get_entity_info(self, entity_id: int) -> Optional[Dict[str, Any]]:
-        """Return detailed UBP info for a specific entity."""
         entity = self.get_entity(entity_id)
         if entity is None:
             return None
         return entity.to_dict()
 
     def summary(self) -> str:
-        """Return a human-readable summary of the simulation state."""
         lines = [
-            f"UBP Space V3 — Tick {self.tick} ({self.time_seconds:.3f}s)",
-            f"  Ambient: {float(self.ambient.temperature_K):.1f}K, "
-            f"ρ_air={float(self.ambient.air_density_ubp):.4f}",
+            f"UBP Space V3.2 — Tick {self.tick} ({self.time_seconds:.3f}s)",
+            f"  Ambient: {float(self.ambient.temperature_K):.1f}K",
             f"  Entities: {len(self._entity_list)}",
         ]
         for e in self._entity_list:
@@ -358,11 +441,10 @@ class UBPSpaceV3:
             )
         for fluid in self._fluid_bodies:
             lines.append(
-                f"  Fluid [{fluid.material_name}]: {fluid.particle_count()} particles, "
-                f"avg_y={fluid.average_y():.3f}"
+                f"  Fluid [{fluid.material_name}] body_id={fluid.body_id}: "
+                f"{fluid.particle_count()} particles, avg_y={fluid.average_y():.3f}"
             )
         for c in self.rigid_body.constraints:
-            import math
             lines.append(
                 f"  Lever [{c.lever.label}]: angle={float(c.angle)*180/math.pi:.2f}° "
                 f"ω={float(c.angular_velocity):.5f} rad/tick"
