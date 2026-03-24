@@ -2,6 +2,8 @@
 
 A deterministic, UBP-native physics simulation engine with full 3D Three.js rendering, composite material system, thermal properties, UBP-derived fluid SPH constants, and Topological Torque rigid body mechanics.
 
+This is a full Game Engine development project, not using standard game engine design but my UBP theory to be the "rules of the game. I think that if the UBP can model reality accurately then surely it should actually make a physics virtual space - lets see.
+
 **UNDER CONSTRUCTION**
 * 24 March 2026
 * E R A Craig, New Zealand
@@ -18,6 +20,7 @@ UBP: [https://github.com/DigitalEuan/UBP_Repo/tree/main/core_studio_v4.0]
 | Smoothing radius | `0.5` | `1 / (Y × 24)` | Golay code dimension |
 
 ## 20.03.26: updated to v4
+* **Current status:** I have the environment physics, blocks and liquid to some extent sorted, the lever not so much but getting there!
 
 ## Topological Torque Moment of Inertia
 
