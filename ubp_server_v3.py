@@ -1,8 +1,13 @@
 """
 ================================================================================
-UBP SERVER v3.2 — FastAPI Backend
+UBP SERVER v4.0 — FastAPI Backend
 ================================================================================
-V3.2 New Commands:
+V4.0 New Endpoints:
+  - GET /mechanics: UBP mechanics system status (Phi-Orbit, NRCI, Leech)
+  - GET /engine_test: Run the engine_test.json validation (README verification)
+  - POST /command {command: "ubp_report", entity_id}: Full UBP entity report
+
+V3.2 Commands (retained):
   - delete_fluid: delete a fluid body by body_id, or all fluid if no id
   - set_lever_angle: directly set a lever's angle in degrees
   - push_lever: push a lever with a force vector (converted to torque)
@@ -19,6 +24,9 @@ import json
 import logging
 import os
 import time
+
+print("[Python] UBP Server v4.0 is starting...")
+
 from decimal import Decimal
 from typing import Dict, List, Any, Optional
 
@@ -36,7 +44,7 @@ from ubp_fluid_v3 import FluidBodyV3
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("ubp_server")
 
-app = FastAPI(title="UBP Digital Twin v3.2")
+app = FastAPI(title="UBP Digital Twin v4.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -299,6 +307,32 @@ class UBPSimulationManager:
             'building': {'x': bx, 'z': bz, 'width': bw, 'depth': bd, 'height': bh},
         }
 
+    def get_ubp_report(self, entity_id: int) -> dict:
+        """Return detailed UBP mechanics info for a specific entity."""
+        if self.space is None:
+            return {"error": "Space not initialized"}
+        
+        entity = self.space.entities.get(entity_id)
+        if not entity:
+            return {"error": f"Entity {entity_id} not found"}
+        
+        # Get basic info
+        info = {
+            "id": entity.id,
+            "material": entity.material.name,
+            "nrci": entity.nrci_state.nrci,
+            "health": entity.nrci_state.health_status,
+            "is_dissolving": entity.is_dissolving,
+            "lattice_cell": entity.lattice_cell,
+            "vector": entity.vector,
+        }
+        
+        # Add mechanics constants
+        from ubp_mechanics_v4 import UBP_MECHANICS
+        info["sigma_mass"] = UBP_MECHANICS.sigma_mass(entity.material.mass)
+        
+        return info
+
     def set_temperature(self, temperature_K: float) -> None:
         if self.space is not None:
             self.space.set_ambient_temperature(temperature_K)
@@ -358,24 +392,29 @@ async def simulation_loop():
 @app.on_event("startup")
 async def startup_event():
     asyncio.create_task(simulation_loop())
-    logger.info("UBP Digital Twin v3.2 started — simulation loop running at 60 Hz")
+    logger.info("UBP Digital Twin v4.0 started — simulation loop running at 60 Hz")
 
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
+    print(f"[Python] New WebSocket connection request from {websocket.client}")
     await manager.connect(websocket)
+    print(f"[Python] WebSocket connection accepted")
     try:
         while True:
             data = await websocket.receive_text()
+            print(f"[Python] Received WebSocket message: {data[:100]}...")
             try:
                 msg = json.loads(data)
             except json.JSONDecodeError:
+                print(f"[Python] JSON Decode Error: {data}")
                 continue
 
             if msg.get("type") != "command":
                 continue
 
             cmd = msg.get("command", "")
+            print(f"[Python] Processing command: {cmd}")
 
             if cmd == "play":
                 sim.is_running = True
@@ -511,6 +550,21 @@ async def websocket_endpoint(websocket: WebSocket):
                 logger.info(f"Displacement demo set up: {result}")
                 continue  # Already broadcast
 
+            elif cmd == "spawn_block_at_grid":
+                gx = int(msg.get("grid_x", 0))
+                gz = int(msg.get("grid_z", 0))
+                mat = msg.get("material", "silicon")
+                y = float(msg.get("y", 1.0))
+                cs = float(msg.get("cell_size", 1.0))
+                eid = sim.spawn_block_at_grid(gx, gz, mat, y, cs)
+                logger.info(f"Spawned block at grid ({gx},{gz}) -> {eid}")
+
+            elif cmd == "ubp_report":
+                eid = int(msg.get("entity_id", 0))
+                report = sim.get_ubp_report(eid)
+                await websocket.send_json({"type": "report", "entity_id": eid, "report": report})
+                continue
+
             # Broadcast updated state after any command
             state = sim.get_state()
             await manager.broadcast(state)
@@ -524,9 +578,90 @@ async def get_state():
     return JSONResponse(content=sim.get_state())
 
 
+@app.get("/health")
+async def get_root_health():
+    return JSONResponse(content={"status": "ok", "server": "fastapi"})
+
+
+@app.get("/api/health")
+async def get_health():
+    return JSONResponse(content={"status": "ok", "version": "4.0"})
+
+
 @app.get("/substrate")
 async def get_substrate():
     return JSONResponse(content=sim.substrate.validate())
+
+
+@app.get("/mechanics")
+async def get_mechanics():
+    """Return UBP v4.0 mechanics system status and constants."""
+    try:
+        from ubp_mechanics_v4 import UBP_MECHANICS, PHI_VEC, PHI_ORBIT_PERIOD, SIGMA
+        from fractions import Fraction
+        return JSONResponse(content={
+            'available': True,
+            'version': '4.0',
+            'constants': {
+                'Y': round(float(UBP_MECHANICS.Y), 10),
+                'Y_inv': round(float(UBP_MECHANICS.Y_INV), 10),
+                'SINK_L': round(float(UBP_MECHANICS.SINK_L), 10),
+                'KISSING': UBP_MECHANICS.KISSING,
+                'SIGMA': round(float(UBP_MECHANICS.SIGMA), 6),
+                'PHI_ORBIT_PERIOD': PHI_ORBIT_PERIOD,
+                'NRCI_NOISE_FLOOR': UBP_MECHANICS.NRCI_NOISE_FLOOR,
+                'NRCI_DISSOLUTION_THRESHOLD': UBP_MECHANICS.NRCI_DISSOLUTION_THRESHOLD,
+            },
+            'phi_vector': PHI_VEC,
+            'laws': [
+                'LAW_PHI_ORBIT_1953',
+                'LAW_13D_SINK_001',
+                'LAW_TOPOLOGICAL_BUFFER_001',
+                'LAW_KISSING_EXPANSION_001',
+                'LAW_HYBRID_STEREOSCOPY_002',
+            ],
+        })
+    except ImportError:
+        return JSONResponse(content={'available': False, 'version': 'fallback'})
+
+
+@app.get("/engine_test")
+async def get_engine_test():
+    """
+    Run the README engine_test.json validation.
+    Verifies that Phi-Orbit tick produces the exact NRCI sequence
+    specified in the README and engine_test.json fixture.
+    """
+    try:
+        from ubp_mechanics_v4 import UBP_MECHANICS
+        import os, json as _json
+        player_vec = [0,0,1,0,0,1,1,1,0,0,1,0,1,0,1,0,1,0,1,1,1,1,0,0]
+        wall_vec   = [1,1,0,1,1,0,1,0,1,1,1,0,1,1,1,1,1,1,0,1,0,0,0,1]
+        results = []
+        pv, wv = list(player_vec), list(wall_vec)
+        for i in range(5):
+            pv, pnrci = UBP_MECHANICS.tick(pv)
+            wv, wnrci = UBP_MECHANICS.tick(wv)
+            results.append({'tick': i+1, 'Player': pnrci, 'Wall': wnrci})
+        # Load fixture
+        fixture_path = os.path.join(os.path.dirname(__file__), 'engine_test.json')
+        fixture_match = False
+        if os.path.isfile(fixture_path):
+            with open(fixture_path) as f:
+                fixture = _json.load(f)
+            expected = fixture.get('ticks', [])
+            fixture_match = all(
+                abs(results[i]['Player'] - expected[i]['Player']) < 1e-10 and
+                abs(results[i]['Wall'] - expected[i]['Wall']) < 1e-10
+                for i in range(min(len(results), len(expected)))
+            )
+        return JSONResponse(content={
+            'pass': fixture_match,
+            'ticks': results,
+            'message': 'PASS: Phi-Orbit matches engine_test.json' if fixture_match else 'WARN: fixture not found or mismatch',
+        })
+    except Exception as e:
+        return JSONResponse(content={'pass': False, 'error': str(e)}, status_code=500)
 
 
 class CommandRequest(BaseModel):
@@ -610,6 +745,9 @@ async def post_command(req: CommandRequest):
             req.x, req.z, req.width, req.depth, req.height, req.wall_thickness, req.fill_height
         )
         return JSONResponse(content={"ok": True, "body_id": bid})
+    elif cmd == "ubp_report" and req.entity_id is not None:
+        report = sim.get_ubp_report(req.entity_id)
+        return JSONResponse(content={"ok": True, "report": report})
     elif cmd == "demo_displacement":
         result = sim.run_displacement_demo()
         return JSONResponse(content={"ok": True, **result})

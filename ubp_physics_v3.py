@@ -1,8 +1,17 @@
 """
 ================================================================================
-UBP PHYSICS ENGINE v3.2
+UBP PHYSICS ENGINE v4.0
 ================================================================================
-V3.2 Fixes:
+V4.0 Upgrades (built on V3.2 foundation):
+  1. SYNTHESIS COLLISION EVENT — on every entity-entity collision, the
+     6-step Golay/Leech vector synthesis is performed (ubp_mechanics_v4).
+     Impact Gap determines NRCI damage. Entities with NRCI < 0.40 are
+     flagged is_dissolving=True for removal by the space orchestrator.
+  2. PHI-ORBIT TICK — delegated to entity.apply_coherence_snap() which
+     now calls UBP_MECHANICS.tick() every 5 ticks (LAW_PHI_ORBIT_1953).
+  3. DISSOLUTION CULLING — step() returns dissolution_pending flag.
+
+V3.2 Fixes (retained):
   1. CONTINUOUS COLLISION DETECTION — collision checks always run regardless of
      whether integer cell movement occurred. V3.1 only checked collisions when
      move_x/y/z != 0, causing slow-moving objects to pass through each other.
@@ -42,6 +51,14 @@ from ubp_engine_substrate import (
 )
 from ubp_materials import AmbientEnvironment
 
+# UBP v4.0 Mechanics
+try:
+    from ubp_mechanics_v4 import UBP_MECHANICS
+    _UBP_MECHANICS_AVAILABLE = True
+except ImportError:
+    _UBP_MECHANICS_AVAILABLE = False
+    UBP_MECHANICS = None
+
 # ---------------------------------------------------------------------------
 # PHYSICS CONSTANTS
 # ---------------------------------------------------------------------------
@@ -74,6 +91,8 @@ class PhysicsResultV3:
     collisions: List[int]
     is_resting: bool
     thermal_delta: Decimal
+    dissolution_pending: bool = False   # V4.0: entity should be removed
+    synthesis_events: List[Dict] = None  # V4.0: synthesis event log
 
 
 class UBPPhysicsEngineV3:
@@ -216,6 +235,26 @@ class UBPPhysicsEngineV3:
         """
         xor_vec = [a ^ b for a, b in zip(entity_a.golay_vector, entity_b.golay_vector)]
         restitution = to_decimal(calculate_nrci(xor_vec))
+
+        # V4.0: Synthesis Collision Event (LAW_PHI_ORBIT_1953 / 6-Step Flow)
+        # Apply NRCI damage from the Golay gap to both entities
+        if _UBP_MECHANICS_AVAILABLE and UBP_MECHANICS is not None:
+            try:
+                nrci_a = float(entity_a.nrci)
+                nrci_b = float(entity_b.nrci)
+                syn_result = UBP_MECHANICS.collide(
+                    entity_a.golay_vector, entity_b.golay_vector,
+                    nrci_a, nrci_b
+                )
+                if syn_result.nrci_damage_a > 0 and not entity_a.is_static:
+                    entity_a.apply_synthesis_damage(syn_result.nrci_damage_a)
+                if syn_result.nrci_damage_b > 0 and not entity_b.is_static:
+                    entity_b.apply_synthesis_damage(syn_result.nrci_damage_b)
+                # Store last synthesis result on entity for reporting
+                entity_a._last_synthesis = syn_result
+                entity_b._last_synthesis = syn_result
+            except Exception:
+                pass  # Never let UBP mechanics crash the physics loop
         m_a = entity_a.inertia
         m_b = entity_b.inertia if not entity_b.is_static else D('1E20')
         inv_m_a = D1 / m_a
@@ -470,7 +509,7 @@ class UBPPhysicsEngineV3:
         # ---- 12. APPLY THERMAL DELTA ----
         entity.thermal.temperature_ubp += thermal_delta
 
-        # ---- 13. COHERENCE SNAP ----
+        # ---- 13. COHERENCE SNAP (Phi-Orbit Tick in V4.0) ----
         entity.apply_coherence_snap()
 
         # ---- 14. THERMAL EXCHANGE WITH AMBIENT ----
@@ -482,6 +521,20 @@ class UBPPhysicsEngineV3:
         self.apply_angular_damping(entity)
         self.integrate_orientation(entity)
 
+        # ---- 16. DISSOLUTION CHECK (LAW_TOPOLOGICAL_BUFFER_001) ----
+        dissolution = getattr(entity, 'is_dissolving', False)
+
+        # Collect synthesis events for reporting
+        syn_events = []
+        last_syn = getattr(entity, '_last_synthesis', None)
+        if last_syn is not None and len(collisions) > 0:
+            syn_events.append({
+                'event_type': last_syn.event_type,
+                'impact_gap': last_syn.impact_gap,
+                'nrci_damage': round(last_syn.nrci_damage_a, 6),
+            })
+            entity._last_synthesis = None
+
         return PhysicsResultV3(
             entity_id=entity.entity_id,
             delta_position=delta,
@@ -492,4 +545,6 @@ class UBPPhysicsEngineV3:
             collisions=collisions,
             is_resting=entity.is_resting,
             thermal_delta=thermal_delta,
+            dissolution_pending=dissolution,
+            synthesis_events=syn_events,
         )

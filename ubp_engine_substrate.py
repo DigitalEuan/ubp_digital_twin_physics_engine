@@ -33,9 +33,12 @@ from typing import List, Tuple, Dict, Any, Optional
 # PATH SETUP: Add the UBP core directory to sys.path so we can import directly
 # ---------------------------------------------------------------------------
 _ENGINE_DIR = os.path.dirname(os.path.abspath(__file__))
-_CORE_DIR = os.path.join(os.path.dirname(_ENGINE_DIR), "core_studio_v4.0", "core")
+# Also add the engine directory itself to sys.path
+if _ENGINE_DIR not in sys.path:
+    sys.path.insert(0, _ENGINE_DIR)
 
-if _CORE_DIR not in sys.path:
+_CORE_DIR = os.path.join(os.path.dirname(_ENGINE_DIR), "core_studio_v4.0", "core")
+if os.path.exists(_CORE_DIR) and _CORE_DIR not in sys.path:
     sys.path.insert(0, _CORE_DIR)
 
 # ---------------------------------------------------------------------------

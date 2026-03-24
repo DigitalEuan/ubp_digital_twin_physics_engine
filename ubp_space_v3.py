@@ -1,8 +1,14 @@
 """
 ================================================================================
-UBP SPACE v3.2 — The Digital Twin World
+UBP SPACE v4.0 — The Digital Twin World
 ================================================================================
-V3.2 Additions:
+V4.0 Additions:
+  - Dissolution culling: entities flagged is_dissolving are removed after step
+  - Synthesis event log in step() return value
+  - UBP mechanics report in get_threejs_state (NRCI, lattice cell, health)
+  - Engine version reported as v4.0
+
+V3.2 Additions (retained):
   - delete_fluid(body_id) — remove a specific fluid body or all fluid
   - set_lever_angle(lever_id, angle_deg) — directly position a lever
   - push_lever(lever_id, force_x, force_y, at_x) — push as torque
@@ -32,6 +38,14 @@ from ubp_rigid_body_v3 import UBPRigidBodyEngineV3, PivotConstraintV3
 from ubp_fluid_v3 import FluidBodyV3
 from ubp_materials import AmbientEnvironment, MaterialRegistry
 from ubp_engine_substrate import Y_CONSTANT, SINK_L
+
+# UBP v4.0 Mechanics
+try:
+    from ubp_mechanics_v4 import UBP_MECHANICS
+    _UBP_MECHANICS_AVAILABLE = True
+except ImportError:
+    _UBP_MECHANICS_AVAILABLE = False
+    UBP_MECHANICS = None
 
 _Y = to_decimal(Y_CONSTANT)
 _SINK_L = to_decimal(SINK_L)
@@ -305,6 +319,20 @@ class UBPSpaceV3:
                 all_fluid_bodies=self._fluid_bodies,  # V3.2: cross-body interaction
             )
 
+        # ---- V4.0: DISSOLUTION CULLING (LAW_TOPOLOGICAL_BUFFER_001) ----
+        dissolved_ids = []
+        synthesis_log = []
+        for result in physics_results:
+            if result.dissolution_pending:
+                dissolved_ids.append(result.entity_id)
+            if result.synthesis_events:
+                synthesis_log.extend(result.synthesis_events)
+        for eid in dissolved_ids:
+            entity = self._entities.get(eid)
+            if entity is not None and not entity.is_static:
+                self._entities.pop(eid, None)
+                self._entity_list = [e for e in self._entity_list if e.entity_id != eid]
+
         # ---- ADVANCE TICK ----
         self.tick += 1
         self.time_seconds = self.tick / self.ticks_per_second
@@ -319,6 +347,8 @@ class UBPSpaceV3:
             'torque_results': len(torque_results),
             'fluid_particles': sum(f.particle_count() for f in self._fluid_bodies),
             'tick_ms': (t_end - t_start) * 1000,
+            'dissolved_count': len(dissolved_ids),
+            'synthesis_events': synthesis_log,
         }
 
     def run_ticks(self, n: int) -> None:
@@ -394,9 +424,16 @@ class UBPSpaceV3:
                 'topological_cost': float(c.topological_cost()),
             })
 
+        # V4.0: UBP mechanics summary across all entities
+        nrci_values = [float(e.nrci) for e in self._entity_list if not e.is_static]
+        avg_nrci = round(sum(nrci_values) / len(nrci_values), 6) if nrci_values else 0.0
+        dissolving_count = sum(1 for e in self._entity_list if getattr(e, 'is_dissolving', False))
+
         return {
             'tick': self.tick,
             'time_s': round(self.time_seconds, 4),
+            'engine_version': '4.0',
+            'ubp_mechanics': _UBP_MECHANICS_AVAILABLE,
             'ambient': {
                 'temperature_K': round(float(self.ambient.temperature_K), 2),
                 'temperature_ubp': round(float(self.ambient.temperature_ubp), 6),
@@ -412,6 +449,8 @@ class UBPSpaceV3:
                 'avg_tick_ms': round(
                     sum(self._tick_times[-60:]) / max(len(self._tick_times[-60:]), 1) * 1000, 3
                 ),
+                'avg_nrci': avg_nrci,
+                'dissolving_count': dissolving_count,
             },
         }
 
@@ -426,7 +465,8 @@ class UBPSpaceV3:
 
     def summary(self) -> str:
         lines = [
-            f"UBP Space V3.2 — Tick {self.tick} ({self.time_seconds:.3f}s)",
+            f"UBP Space V4.0 — Tick {self.tick} ({self.time_seconds:.3f}s)",
+            f"  UBP Mechanics: {'ACTIVE' if _UBP_MECHANICS_AVAILABLE else 'FALLBACK'}",
             f"  Ambient: {float(self.ambient.temperature_K):.1f}K",
             f"  Entities: {len(self._entity_list)}",
         ]

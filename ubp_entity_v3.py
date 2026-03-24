@@ -1,11 +1,20 @@
 """
 ================================================================================
-UBP ENTITY SYSTEM v3.0
+UBP ENTITY SYSTEM v4.0
 ================================================================================
-Every object in the V3 simulation is a UBPEntityV3. Unlike V2's monolithic
-vectors, V3 entities are built from composite materials (UBP KB elements).
+Every object in the V4 simulation is a UBPEntityV3. Unlike V2's monolithic
+vectors, V3/V4 entities are built from composite materials (UBP KB elements).
 
-Key upgrades from V2:
+Key upgrades from V3:
+  1. Phi-Orbit Tick integration (LAW_PHI_ORBIT_1953) — vector evolves each tick
+  2. NRCI live state via NCRIState (LAW_13D_SINK_001)
+  3. Leech Lattice address (LAW_KISSING_EXPANSION_001) in to_threejs_state
+  4. Metabolic rendering: opacity and tilt derived from live NRCI
+  5. Synthesis Collision Event support via ubp_mechanics_v4
+  6. Dissolution flag: entities below NRCI threshold flagged for removal
+  7. Hybrid Stereoscopy Sigma (LAW_HYBRID_STEREOSCOPY_002) in mass calc
+
+Key upgrades from V2 (retained from V3):
   1. Composite material system — entities have a MaterialRecipe
   2. Thermal state — temperature, heat capacity, heat transfer
   3. Topological Torque moment of inertia (LAW_TOPOLOGICAL_TORQUE_001)
@@ -53,6 +62,14 @@ from ubp_engine_substrate import (
     _construction_tax_from_dna, GOLAY_BLOCK_LENGTH,
 )
 from ubp_materials import MaterialRecipe, MaterialRegistry, AmbientEnvironment
+
+# UBP v4.0 Mechanics (Phi-Orbit, Synthesis, NRCI, Leech Addressing)
+try:
+    from ubp_mechanics_v4 import UBP_MECHANICS, NCRIState
+    _UBP_MECHANICS_AVAILABLE = True
+except ImportError:
+    _UBP_MECHANICS_AVAILABLE = False
+    UBP_MECHANICS = None
 
 # Convert physics constants to Decimal for simulation use
 _Y = to_decimal(Y_CONSTANT)
@@ -341,6 +358,24 @@ class UBPEntityV3:
         self._snap_counter: int = 0
         self._snap_interval: int = 10
 
+        # UBP v4.0 — Phi-Orbit NRCI state (LAW_PHI_ORBIT_1953 + LAW_13D_SINK_001)
+        if _UBP_MECHANICS_AVAILABLE:
+            self.nrci_state: NCRIState = UBP_MECHANICS.make_nrci_state(self.golay_vector)
+        else:
+            self.nrci_state = None
+
+        # Leech Lattice address (LAW_KISSING_EXPANSION_001)
+        self.lattice_cell: Tuple[int, int, int] = (0, 0, 0)
+        if _UBP_MECHANICS_AVAILABLE:
+            self.lattice_cell = UBP_MECHANICS.fold_to_cell(self.golay_vector)
+
+        # Dissolution flag (LAW_TOPOLOGICAL_BUFFER_001)
+        self.is_dissolving: bool = False
+
+        # Phi-Orbit tick counter
+        self._phi_tick_counter: int = 0
+        self._phi_tick_interval: int = 5  # Apply Phi-Orbit every 5 simulation ticks
+
     def _build_type_dna(self) -> str:
         """
         Build the type DNA string from the material composition.
@@ -419,18 +454,51 @@ class UBPEntityV3:
     def apply_coherence_snap(self) -> None:
         """
         Periodically snap the Golay vector to the nearest valid codeword.
-        This is the substrate's restorative pressure (UBP coherence correction).
+        V4.0: Uses Phi-Orbit tick instead of plain coherence snap when
+        ubp_mechanics_v4 is available (LAW_PHI_ORBIT_1953).
         Only runs every _snap_interval ticks to avoid overhead.
         """
         self._snap_counter += 1
         if self._snap_counter < self._snap_interval:
             return
         self._snap_counter = 0
-        snapped, _ = coherence_snap(self.golay_vector)
-        self.golay_vector = snapped
-        # Recompute tax and NRCI after snap
-        self.symmetry_tax = calculate_symmetry_tax(self.golay_vector)
-        self.nrci = calculate_nrci(self.golay_vector)
+
+        if _UBP_MECHANICS_AVAILABLE and self.nrci_state is not None:
+            # V4.0 path: Phi-Orbit tick updates vector + NRCI atomically
+            self._phi_tick_counter += 1
+            if self._phi_tick_counter >= self._phi_tick_interval:
+                self._phi_tick_counter = 0
+                new_vec, new_nrci = UBP_MECHANICS.tick(self.golay_vector)
+                self.golay_vector = new_vec
+                self.nrci = calculate_nrci(self.golay_vector)
+                self.symmetry_tax = calculate_symmetry_tax(self.golay_vector)
+                # Update NCRIState
+                self.nrci_state.vector = new_vec
+                self.nrci_state.nrci = new_nrci
+                self.nrci_state.tick_phase = (self.nrci_state.tick_phase + 1) % 1953
+                self.nrci_state.total_ticks += 1
+                # Update lattice cell
+                self.lattice_cell = UBP_MECHANICS.fold_to_cell(new_vec)
+                # Check dissolution
+                if new_nrci < 0.40 and not self.is_static:
+                    self.is_dissolving = True
+        else:
+            # V3.x fallback: plain coherence snap
+            snapped, _ = coherence_snap(self.golay_vector)
+            self.golay_vector = snapped
+            self.symmetry_tax = calculate_symmetry_tax(self.golay_vector)
+            self.nrci = calculate_nrci(self.golay_vector)
+
+    def apply_synthesis_damage(self, damage: float) -> None:
+        """
+        Apply NRCI damage from a Synthesis Collision Event.
+        (LAW_13D_SINK_001 — Symmetry Tax accumulation from collision)
+        """
+        if _UBP_MECHANICS_AVAILABLE and self.nrci_state is not None:
+            self.nrci_state = UBP_MECHANICS.apply_damage(self.nrci_state, damage)
+            self.nrci = Fraction(str(round(self.nrci_state.nrci, 10)))
+            if self.nrci_state.dissolution_pending and not self.is_static:
+                self.is_dissolving = True
 
     def apply_thermal_exchange(self, ambient: AmbientEnvironment) -> None:
         """
@@ -490,6 +558,23 @@ class UBPEntityV3:
         }
         colour = colour_map.get(self.material.name, '#888888')
 
+        # Metabolic rendering: opacity and tilt from live NRCI
+        nrci_float = float(self.nrci)
+        if _UBP_MECHANICS_AVAILABLE and self.nrci_state is not None:
+            nrci_float = self.nrci_state.nrci
+            health_status = self.nrci_state.health_status
+            opacity = round(self.nrci_state.opacity, 3)
+            tilt_deg = round(self.nrci_state.tilt_degrees, 2)
+            tick_phase = self.nrci_state.tick_phase
+        else:
+            health_status = 'STABLE' if nrci_float >= 0.60 else 'STRESSED'
+            opacity = max(0.2, min(1.0, nrci_float))
+            tilt_deg = round((1.0 - nrci_float) * 90.0, 2)
+            tick_phase = 0
+
+        # Leech Lattice address
+        lc = self.lattice_cell
+
         return {
             'id': self.entity_id,
             'label': self.label,
@@ -501,8 +586,15 @@ class UBPEntityV3:
             'colour': colour,
             'is_static': self.is_static,
             'is_resting': self.is_resting,
+            'is_dissolving': self.is_dissolving,
             'mass': float(self.mass),
-            'nrci': float(self.nrci),
+            'nrci': round(nrci_float, 6),
+            'health_status': health_status,
+            'opacity': opacity,
+            'tilt_degrees': tilt_deg,
+            'tick_phase': tick_phase,
+            'lattice_cell': {'x': lc[0], 'y': lc[1], 'z': lc[2]},
+            'golay_vector': self.golay_vector,
             'temperature_K': float(self.thermal.temperature_ubp) * 24.0 / float(_Y),
             'velocity': {'x': float(self.velocity.vx), 'y': float(self.velocity.vy), 'z': float(self.velocity.vz)},
         }

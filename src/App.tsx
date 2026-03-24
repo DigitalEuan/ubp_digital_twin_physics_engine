@@ -33,8 +33,19 @@ interface EntityState {
   colour: string;
   is_static: boolean;
   is_resting: boolean;
+  is_dissolving?: boolean;
   mass: number;
   nrci: number;
+  /** V4.0: UBP health status string */
+  health_status?: string;
+  /** V4.0: Metabolic opacity driven by NRCI */
+  opacity?: number;
+  /** V4.0: Phi-Orbit tick phase (0–1952) */
+  tick_phase?: number;
+  /** V4.0: Leech Lattice cell address */
+  lattice_cell?: Vec3;
+  /** V4.0: 24-bit Golay codeword vector */
+  golay_vector?: number[];
   /** Temperature in Kelvin (UBP-derived). */
   temperature_K: number;
   velocity: Vec3;
@@ -72,6 +83,10 @@ interface SimulationState {
   tick: number;
   time_s: number;
   is_running: boolean;
+  /** V4.0: engine version string */
+  engine_version?: string;
+  /** V4.0: whether UBP mechanics module is active */
+  ubp_mechanics?: boolean;
   ambient: {
     temperature_K: number;
     temperature_ubp: number;
@@ -85,6 +100,10 @@ interface SimulationState {
     fluid_particle_count: number;
     fluid_body_count: number;
     avg_tick_ms: number;
+    /** V4.0: average NRCI across all non-static entities */
+    avg_nrci?: number;
+    /** V4.0: count of entities currently dissolving */
+    dissolving_count?: number;
   };
 }
 
@@ -115,6 +134,11 @@ const EntityMesh = React.memo(({
   const tempNorm = Math.min(Math.max((data.temperature_K - 293) / 500, 0), 1);
   const emissiveColour = tempNorm > 0.05 ? `hsl(${Math.round(20 - tempNorm * 20)}, 100%, 40%)` : '#000000';
 
+  // V4.0: Metabolic opacity — NRCI drives how "solid" the entity appears
+  const metabolicOpacity = data.opacity ?? 1.0;
+  const isDissolving = data.is_dissolving ?? false;
+  const dissolveColour = isDissolving ? '#ff2222' : colour;
+
   if (data.is_static) {
     return (
       <mesh
@@ -138,13 +162,15 @@ const EntityMesh = React.memo(({
     >
       <boxGeometry args={[data.size.x, data.size.y, data.size.z]} />
       <meshStandardMaterial
-        color={selected ? '#ffffff' : colour}
-        emissive={selected ? colour : emissiveColour}
-        emissiveIntensity={selected ? 0.4 : tempNorm * 0.8}
+        color={selected ? '#ffffff' : dissolveColour}
+        emissive={selected ? colour : (isDissolving ? '#ff0000' : emissiveColour)}
+        emissiveIntensity={selected ? 0.4 : (isDissolving ? 0.6 : tempNorm * 0.8)}
         roughness={0.6}
         metalness={
           data.material === 'iron' || data.material === 'steel' ? 0.8 : 0.3
         }
+        transparent={metabolicOpacity < 0.99 || isDissolving}
+        opacity={isDissolving ? 0.4 : metabolicOpacity}
       />
       {selected && (
         <lineSegments>
@@ -450,17 +476,48 @@ const EntityCard = ({
           )}
         </div>
       </div>
+      {/* V4.0: NRCI Health Bar */}
+      {(() => {
+        const nrci = entity.nrci;
+        const healthPct = Math.round(nrci * 100);
+        const barColour = nrci > 0.7 ? '#22c55e' : nrci > 0.4 ? '#f59e0b' : '#ef4444';
+        const status = entity.health_status ?? (nrci > 0.7 ? 'COHERENT' : nrci > 0.4 ? 'STRESSED' : 'CRITICAL');
+        return (
+          <div className="space-y-1">
+            <div className="flex justify-between items-center text-[10px]">
+              <span className="text-slate-500">NRCI Health</span>
+              <span style={{ color: barColour }} className="font-bold">{status}</span>
+            </div>
+            <div className="w-full h-1.5 bg-slate-700 rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all duration-300"
+                style={{ width: `${healthPct}%`, backgroundColor: barColour }}
+              />
+            </div>
+            <div className="flex justify-between text-[10px] text-slate-500">
+              <span>NRCI {nrci.toFixed(4)}</span>
+              <span>{healthPct}%</span>
+            </div>
+          </div>
+        );
+      })()}
       <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-slate-400">
         <div>Mass: <span className="text-slate-300">{entity.mass.toFixed(3)}</span></div>
-        <div>NRCI: <span className="text-slate-300">{entity.nrci.toFixed(4)}</span></div>
         <div>Temp: <span style={{ color: tempColour }}>{entity.temperature_K.toFixed(2)} K</span></div>
         <div>Y: <span className="text-slate-300">{entity.position.y.toFixed(3)}</span></div>
         <div>Vx: <span className="text-slate-300">{entity.velocity.x.toFixed(4)}</span></div>
-        <div>Vy: <span className="text-slate-300">{entity.velocity.y.toFixed(4)}</span></div>
+        {entity.lattice_cell && (
+          <div className="col-span-2 text-[10px] text-slate-500">
+            Lattice: <span className="text-violet-400 font-mono">
+              [{entity.lattice_cell.x},{entity.lattice_cell.y},{entity.lattice_cell.z}]
+            </span>
+          </div>
+        )}
       </div>
-      <div className="flex gap-2 text-[10px]">
+      <div className="flex gap-2 text-[10px] flex-wrap">
         {entity.is_static && <span className="text-amber-400">STATIC</span>}
         {entity.is_resting && <span className="text-emerald-400">AT REST</span>}
+        {entity.is_dissolving && <span className="text-red-400 animate-pulse">◉ DISSOLVING</span>}
         {selected && <span className="text-indigo-400">SELECTED</span>}
         {tempDelta > 1 && <span style={{ color: tempColour }}>▲ HOT +{tempDelta.toFixed(1)}K</span>}
       </div>
@@ -754,11 +811,15 @@ const GridPlacementPanel = ({
 export default function App() {
   const [state, setState] = useState<SimulationState | null>(null);
   const [connected, setConnected] = useState(false);
-  const [activeTab, setActiveTab] = useState<'controls' | 'data' | 'physics'>('controls');
+  const [activeTab, setActiveTab] = useState<'controls' | 'data' | 'physics' | 'ubp'>('controls');
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [gridPlacementMode, setGridPlacementMode] = useState(false);
   const [gridMaterial, setGridMaterial] = useState('iron');
   const [demoStatus, setDemoStatus] = useState<string | null>(null);
+  // V4.0: UBP mechanics state
+  const [engineTestResult, setEngineTestResult] = useState<any>(null);
+  const [engineTestLoading, setEngineTestLoading] = useState(false);
+  const [synthesisLog, setSynthesisLog] = useState<Array<{tick: number; a: string; b: string; hamming: number; restitution: number}>>([]);
   const wsRef = useRef<WebSocket | null>(null);
 
   // Reconnecting WebSocket
@@ -780,6 +841,18 @@ export default function App() {
           const msg = JSON.parse(event.data);
           if (msg.type === 'state') {
             setState(msg.data as SimulationState);
+          } else if (msg.type === 'synthesis_event') {
+            // V4.0: Log Synthesis Collision Events
+            setSynthesisLog(prev => {
+              const entry = {
+                tick: msg.tick ?? 0,
+                a: msg.material_a ?? '?',
+                b: msg.material_b ?? '?',
+                hamming: msg.hamming_distance ?? 0,
+                restitution: msg.restitution ?? 0,
+              };
+              return [entry, ...prev].slice(0, 20); // keep last 20
+            });
           }
         } catch (e) {
           console.error('[UBP] Parse error:', e);
@@ -861,6 +934,21 @@ export default function App() {
     setTimeout(() => setDemoStatus(null), 8000);
   }, [sendCommand]);
 
+  // V4.0: Run engine_test validation against README spec
+  const handleRunEngineTest = useCallback(async () => {
+    setEngineTestLoading(true);
+    setEngineTestResult(null);
+    try {
+      const res = await fetch('/engine_test');
+      const data = await res.json();
+      setEngineTestResult(data);
+    } catch (e) {
+      setEngineTestResult({ error: String(e) });
+    } finally {
+      setEngineTestLoading(false);
+    }
+  }, []);
+
   const selectedEntity = useMemo(() => {
     if (selectedId === null || !state) return null;
     return state.entities.find(e => e.id === selectedId) ?? null;
@@ -898,7 +986,12 @@ export default function App() {
         <div className="absolute top-4 left-4 bg-slate-900/85 backdrop-blur-sm p-4 rounded-xl border border-slate-700 shadow-lg pointer-events-none min-w-[240px]">
           <div className="flex items-center gap-2 mb-3">
             <Activity className="w-5 h-5 text-emerald-400 flex-shrink-0" />
-            <h1 className="text-base font-bold text-white leading-tight">UBP Digital Twin v3.2</h1>
+            <h1 className="text-base font-bold text-white leading-tight">
+              UBP Digital Twin v4.0
+              {state?.ubp_mechanics && (
+                <span className="ml-2 text-[10px] text-violet-400 font-normal align-middle">◉ UBP</span>
+              )}
+            </h1>
           </div>
           <div className="space-y-1 text-xs text-slate-300 font-mono">
             <div className="flex justify-between">
@@ -935,6 +1028,18 @@ export default function App() {
               <span className="text-slate-500">Ambient Temp</span>
               <span className="text-orange-300">{(state?.ambient?.temperature_K ?? 0).toFixed(1)} K</span>
             </div>
+            {state?.stats?.avg_nrci !== undefined && (
+              <div className="flex justify-between">
+                <span className="text-slate-500">Avg NRCI</span>
+                <span className="text-violet-400">{state.stats.avg_nrci.toFixed(4)}</span>
+              </div>
+            )}
+            {(state?.stats?.dissolving_count ?? 0) > 0 && (
+              <div className="flex justify-between">
+                <span className="text-slate-500">Dissolving</span>
+                <span className="text-red-400 animate-pulse">{state!.stats.dissolving_count}</span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -963,6 +1068,11 @@ export default function App() {
             <span className="text-orange-400 ml-2">
               {selectedEntity.temperature_K.toFixed(1)} K
             </span>
+            {selectedEntity.lattice_cell && (
+              <span className="text-violet-400 ml-2 text-[10px]">
+                ◇[{selectedEntity.lattice_cell.x},{selectedEntity.lattice_cell.y},{selectedEntity.lattice_cell.z}]
+              </span>
+            )}
           </div>
         )}
 
@@ -1001,17 +1111,17 @@ export default function App() {
 
         {/* Tab navigation */}
         <div className="flex border-b border-slate-700">
-          {(['controls', 'data', 'physics'] as const).map(tab => (
+          {(['controls', 'data', 'physics', 'ubp'] as const).map(tab => (
             <button
               key={tab}
               className={`flex-1 py-3 text-xs font-medium transition-colors capitalize ${
                 activeTab === tab
-                  ? 'text-white border-b-2 border-indigo-500'
+                  ? tab === 'ubp' ? 'text-violet-300 border-b-2 border-violet-500' : 'text-white border-b-2 border-indigo-500'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
               onClick={() => setActiveTab(tab)}
             >
-              {tab}
+              {tab === 'ubp' ? '◉ UBP' : tab}
             </button>
           ))}
         </div>
@@ -1252,7 +1362,7 @@ export default function App() {
               <div className="bg-slate-900 p-3 rounded-lg border border-slate-700 text-xs font-mono space-y-1.5">
                 <div className="text-slate-500 mb-2">Collision (Continuous Detection)</div>
                 <div className="text-slate-400 text-[10px] leading-relaxed">
-                  V3.2 uses swept-AABB continuous collision detection. Every
+                  Using swept-AABB continuous collision detection. Every
                   tick, each entity's swept volume is tested against all others,
                   preventing tunnelling at any velocity. Restitution is derived
                   from the Hamming distance between Golay codewords of the two
@@ -1335,6 +1445,175 @@ export default function App() {
               </div>
             </div>
           )}
+          {/* UBP MECHANICS TAB */}
+          {activeTab === 'ubp' && (
+            <div className="space-y-4">
+              <h3 className="text-xs font-semibold text-violet-400 uppercase tracking-wider">UBP Mechanics v4.0</h3>
+
+              {/* Engine version badge */}
+              <div className="bg-violet-900/20 border border-violet-500/30 rounded-lg p-3 text-xs font-mono">
+                <div className="flex justify-between items-center">
+                  <span className="text-violet-300 font-bold">Engine</span>
+                  <span className="text-slate-300">{state?.engine_version ?? 'v4.0'}</span>
+                </div>
+                <div className="flex justify-between items-center mt-1">
+                  <span className="text-violet-300">UBP Mechanics</span>
+                  <span className={state?.ubp_mechanics ? 'text-emerald-400' : 'text-red-400'}>
+                    {state?.ubp_mechanics ? '◉ ACTIVE' : '○ INACTIVE'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Phi-Orbit Tick */}
+              <div className="bg-slate-900 p-3 rounded-lg border border-violet-700/40 text-xs font-mono space-y-1.5">
+                <div className="text-violet-400 font-semibold mb-1">Φ Phi-Orbit Tick (LAW_PHI_ORBIT_1953)</div>
+                <div className="text-slate-400 text-[10px] leading-relaxed">
+                  Each tick advances a 1-bit shift register XOR’d with a
+                  phi-primitive derived from φ = 1.6180339887… The register
+                  cycles through 1953 states, producing a deterministic
+                  pseudo-random sequence with no floating-point drift.
+                </div>
+                <div className="flex justify-between mt-1">
+                  <span className="text-slate-500">φ (golden ratio)</span>
+                  <span className="text-violet-300">1.6180339887…</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Cycle length</span>
+                  <span className="text-violet-300">1953 ticks</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Current tick mod 1953</span>
+                  <span className="text-violet-300">{(state?.tick ?? 0) % 1953}</span>
+                </div>
+              </div>
+
+              {/* Synthesis Collision */}
+              <div className="bg-slate-900 p-3 rounded-lg border border-cyan-700/40 text-xs font-mono space-y-1.5">
+                <div className="text-cyan-400 font-semibold mb-1">△ Synthesis Collision (Golay/Leech)</div>
+                <div className="text-slate-400 text-[10px] leading-relaxed">
+                  On entity collision, each material’s 24-bit Golay codeword
+                  is XOR’d. The Hamming weight of the result determines the
+                  restitution coefficient — high Hamming = more elastic,
+                  low Hamming = more inelastic (materials “fit” together).
+                </div>
+                {synthesisLog.length > 0 ? (
+                  <div className="mt-2 space-y-1">
+                    <div className="text-slate-500 text-[10px] mb-1">Recent events (last 20)</div>
+                    {synthesisLog.slice(0, 8).map((ev, i) => (
+                      <div key={i} className="flex justify-between text-[10px] border-t border-slate-800 pt-1">
+                        <span className="text-slate-400">t{ev.tick}: <span className="text-cyan-300">{ev.a}</span> × <span className="text-cyan-300">{ev.b}</span></span>
+                        <span className="text-slate-300">H={ev.hamming} e={ev.restitution.toFixed(3)}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-slate-600 text-[10px] mt-1">No collisions yet — spawn blocks and push them together</div>
+                )}
+              </div>
+
+              {/* NRCI / 13D Sink */}
+              <div className="bg-slate-900 p-3 rounded-lg border border-red-700/40 text-xs font-mono space-y-1.5">
+                <div className="text-red-400 font-semibold mb-1">★ NRCI / 13D Sink (LAW_13D_SINK_001)</div>
+                <div className="text-slate-400 text-[10px] leading-relaxed">
+                  NRCI (Non-Random Coherence Index) measures how well an
+                  entity’s UBP vector aligns with the Golay codeword lattice.
+                  When NRCI drops below the 13D Sink threshold (0.1618), the
+                  entity enters dissolution and is culled from the simulation.
+                </div>
+                <div className="flex justify-between mt-1">
+                  <span className="text-slate-500">Sink threshold</span>
+                  <span className="text-red-400">0.1618 (φ⁻¹ × 0.2618)</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Coherent (≥ 0.7)</span>
+                  <span className="text-emerald-400">Green health bar</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Stressed (0.4–0.7)</span>
+                  <span className="text-amber-400">Amber health bar</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Critical (&lt; 0.4)</span>
+                  <span className="text-red-400">Red — near dissolution</span>
+                </div>
+              </div>
+
+              {/* Leech Lattice */}
+              <div className="bg-slate-900 p-3 rounded-lg border border-indigo-700/40 text-xs font-mono space-y-1.5">
+                <div className="text-indigo-400 font-semibold mb-1">◇ Leech Lattice (LAW_TOPOLOGICAL_BUFFER_001)</div>
+                <div className="text-slate-400 text-[10px] leading-relaxed">
+                  Every entity’s 3D position is snapped to the nearest valid
+                  Leech Lattice cell (24-dimensional Λ₂₄ projected to 3D via
+                  the first three coordinates). The cell address is shown
+                  in the entity card and the bottom-left HUD when selected.
+                </div>
+                <div className="flex justify-between mt-1">
+                  <span className="text-slate-500">Lattice scale</span>
+                  <span className="text-indigo-300">Y⁻¹ × 2 ≈ 7.556</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Cell notation</span>
+                  <span className="text-indigo-300">[cx, cy, cz] integers</span>
+                </div>
+              </div>
+
+              {/* Hybrid Stereoscopy (new KB entry) */}
+              <div className="bg-slate-900 p-3 rounded-lg border border-yellow-700/40 text-xs font-mono space-y-1.5">
+                <div className="text-yellow-400 font-semibold mb-1">★ Myo Oo Refinement (LAW_HYBRID_STEREOSCOPY_002)</div>
+                <div className="text-slate-400 text-[10px] leading-relaxed">
+                  The Baryonic Base mass is set by the 29/24 Sigma ratio,
+                  locking the Proton phase to the Leech Lattice kissing
+                  number (196560). This constant is used in the particle
+                  physics substrate to derive rest mass from UBP geometry.
+                </div>
+                <div className="flex justify-between mt-1">
+                  <span className="text-slate-500">Σ ratio</span>
+                  <span className="text-yellow-300">29/24 = 1.20833…</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Kissing number</span>
+                  <span className="text-yellow-300">196560 (Λ₂₄)</span>
+                </div>
+              </div>
+
+              {/* Engine Test Validator */}
+              <div className="bg-slate-900 p-3 rounded-lg border border-emerald-700/40 text-xs font-mono space-y-2">
+                <div className="text-emerald-400 font-semibold">Engine Test Validator</div>
+                <div className="text-slate-400 text-[10px] leading-relaxed">
+                  Runs the README engine_test.json scenario and checks all
+                  NRCI values match the specification exactly.
+                </div>
+                <button
+                  onClick={handleRunEngineTest}
+                  disabled={engineTestLoading}
+                  className="w-full py-2 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 rounded transition-colors disabled:opacity-50"
+                >
+                  {engineTestLoading ? 'Running…' : 'Run Engine Test'}
+                </button>
+                {engineTestResult && (
+                  <div className="mt-2 space-y-1">
+                    {engineTestResult.error ? (
+                      <div className="text-red-400">✗ {engineTestResult.error}</div>
+                    ) : (
+                      <>
+                        <div className={`font-bold ${engineTestResult.pass ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {engineTestResult.pass ? '✓ PHI-ORBIT PASS' : '✗ PHI-ORBIT FAIL'}
+                        </div>
+                        <div className="text-slate-400 text-[10px] mt-1">{engineTestResult.message}</div>
+                        {(engineTestResult.ticks ?? []).slice(0, 5).map((t: any, i: number) => (
+                          <div key={i} className="flex justify-between text-[10px] border-t border-slate-800 pt-1">
+                            <span className="text-slate-500">Tick {t.tick}</span>
+                            <span className="text-violet-300">P={t.Player?.toFixed(4)} W={t.Wall?.toFixed(4)}</span>
+                          </div>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
         </div>
       </div>
     </div>
