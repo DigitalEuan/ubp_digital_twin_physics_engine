@@ -3,7 +3,7 @@
 A deterministic, UBP-native physics simulation engine with full 3D Three.js rendering, composite material system, thermal properties, UBP-derived fluid SPH constants, and Topological Torque rigid body mechanics.
 
 **UNDER CONSTRUCTION**
-* 16 March 2026
+* 24 March 2026
 * E R A Craig, New Zealand
 
 UBP: [https://github.com/DigitalEuan/UBP_Repo/tree/main/core_studio_v4.0]
@@ -16,6 +16,8 @@ UBP: [https://github.com/DigitalEuan/UBP_Repo/tree/main/core_studio_v4.0]
 | Viscosity | `(1-NRCI) × Y × 10` | `Y / 96` | LAW_ONTOLOGICAL_FRICTION_001 |
 | Surface tension | `Y × 5` | `Y² / KISSING` | LAW_COMP_001 |
 | Smoothing radius | `0.5` | `1 / (Y × 24)` | Golay code dimension |
+
+## 20.03.26: updated to v4
 
 ## Topological Torque Moment of Inertia
 
