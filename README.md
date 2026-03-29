@@ -5,6 +5,7 @@ A deterministic, UBP-native physics simulation engine with full 3D Three.js rend
 This is a full Game Engine development project, not using standard game engine design but my UBP theory to be the "rules of the game. I think that if the UBP can model reality accurately then surely it should actually make a physics virtual space - lets see.
 
 **UNDER CONSTRUCTION**
+This version still contains placeholders and simplified methods that are not yet fully aligned with the UBP system.
 * 24 March 2026
 * E R A Craig, New Zealand
 
