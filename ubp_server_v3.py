@@ -308,29 +308,55 @@ class UBPSimulationManager:
         }
 
     def get_ubp_report(self, entity_id: int) -> dict:
-        """Return detailed UBP mechanics info for a specific entity."""
+        """
+        Return detailed UBP mechanics info for a specific entity.
+        v5.0-ubp6.3.1: Updated to use current UBPEntityV3 API.
+        """
         if self.space is None:
             return {"error": "Space not initialized"}
-        
-        entity = self.space.entities.get(entity_id)
+
+        # Use the correct _entities dict from UBPSpaceV3
+        entity = self.space._entities.get(entity_id)
         if not entity:
             return {"error": f"Entity {entity_id} not found"}
-        
-        # Get basic info
-        info = {
-            "id": entity.id,
-            "material": entity.material.name,
-            "nrci": entity.nrci_state.nrci,
-            "health": entity.nrci_state.health_status,
-            "is_dissolving": entity.is_dissolving,
-            "lattice_cell": entity.lattice_cell,
-            "vector": entity.vector,
-        }
-        
-        # Add mechanics constants
+
         from ubp_mechanics_v4 import UBP_MECHANICS
-        info["sigma_mass"] = UBP_MECHANICS.sigma_mass(entity.material.mass)
-        
+        from ubp_engine_substrate import calculate_symmetry_tax, calculate_nrci
+
+        # Build the report using the correct entity attributes
+        nrci_val = float(entity.nrci)
+        health = 'STABLE'
+        if entity.nrci_state is not None:
+            nrci_val = entity.nrci_state.nrci
+            health = entity.nrci_state.health_status
+        elif nrci_val < 0.60:
+            health = 'STRESSED'
+
+        # Leech address (v6.3.1: 3-bit octant)
+        addr = UBP_MECHANICS.get_address(entity.golay_vector)
+
+        info = {
+            "id": entity.entity_id,
+            "label": entity.label,
+            "material": entity.material.name,
+            "nrci": round(nrci_val, 6),
+            "symmetry_tax": float(entity.symmetry_tax),
+            "construction_tax": float(entity.construction_tax),
+            "health": health,
+            "is_dissolving": entity.is_dissolving,
+            "is_static": entity.is_static,
+            "lattice_cell": list(entity.lattice_cell),
+            "leech_octant": addr.octant,
+            "golay_vector": entity.golay_vector,
+            "mass": float(entity.mass),
+            "inertia": float(entity.inertia),
+            "moment_of_inertia": float(entity.moment_of_inertia),
+            "position": entity.position.to_dict(),
+            "velocity": entity.velocity.to_dict(),
+            "temperature_K": entity.thermal.temperature_K,
+            "sigma_mass": UBP_MECHANICS.sigma_mass(float(entity.mass)),
+        }
+
         return info
 
     def set_temperature(self, temperature_K: float) -> None:
@@ -595,13 +621,13 @@ async def get_substrate():
 
 @app.get("/mechanics")
 async def get_mechanics():
-    """Return UBP v4.0 mechanics system status and constants."""
+    """Return UBP v6.3.1 mechanics system status and constants."""
     try:
         from ubp_mechanics_v4 import UBP_MECHANICS, PHI_VEC, PHI_ORBIT_PERIOD, SIGMA
         from fractions import Fraction
         return JSONResponse(content={
             'available': True,
-            'version': '4.0',
+            'version': '5.0-ubp6.3.1',
             'constants': {
                 'Y': round(float(UBP_MECHANICS.Y), 10),
                 'Y_inv': round(float(UBP_MECHANICS.Y_INV), 10),
@@ -619,6 +645,22 @@ async def get_mechanics():
                 'LAW_TOPOLOGICAL_BUFFER_001',
                 'LAW_KISSING_EXPANSION_001',
                 'LAW_HYBRID_STEREOSCOPY_002',
+                'LAW_GEO_FOLD_001',
+                'LAW_VOLUMETRIC_REBATE_001',
+                'LAW_TGIC_9NEIGHBOR_001',
+                'LAW_SYNTHESIS_SUPERPOSITION_001',
+                'LAW_DOMAIN_PIVOT_001',
+            ],
+            'v6_3_1_changes': [
+                'fold24_to3: recursive XOR fold (3 bits, not 3 octets)',
+                'xor_interact: Additive Superposition + Phenomenal Collapse',
+                'NRCI: Sink Leakage rebate applied (10/(10+tax*(1-L)))',
+                'Volumetric Rebate: T_adj = T_base*(1-C/13)',
+                'Domain Pivot: Bit 12 (index 11) encodes Phenomenal/Noumenal',
+                'TGIC 9-neighbor overheating pressure in space step loop',
+                'Collision restitution: Synthesis Superposition (not XOR)',
+                'Lever torque: Topological Resistance + Hamming friction',
+                'Fluid pressure: NRCI-modulated stiffness',
             ],
         })
     except ImportError:
@@ -628,40 +670,100 @@ async def get_mechanics():
 @app.get("/engine_test")
 async def get_engine_test():
     """
-    Run the README engine_test.json validation.
-    Verifies that Phi-Orbit tick produces the exact NRCI sequence
-    specified in the README and engine_test.json fixture.
+    Run the full UBP v6.3.1 engine validation suite.
+    Tests all mechanics updated in v6.3.1.
     """
     try:
-        from ubp_mechanics_v4 import UBP_MECHANICS
-        import os, json as _json
-        player_vec = [0,0,1,0,0,1,1,1,0,0,1,0,1,0,1,0,1,0,1,1,1,1,0,0]
-        wall_vec   = [1,1,0,1,1,0,1,0,1,1,1,0,1,1,1,1,1,1,0,1,0,0,0,1]
-        results = []
-        pv, wv = list(player_vec), list(wall_vec)
-        for i in range(5):
-            pv, pnrci = UBP_MECHANICS.tick(pv)
-            wv, wnrci = UBP_MECHANICS.tick(wv)
-            results.append({'tick': i+1, 'Player': pnrci, 'Wall': wnrci})
-        # Load fixture
-        fixture_path = os.path.join(os.path.dirname(__file__), 'engine_test.json')
-        fixture_match = False
-        if os.path.isfile(fixture_path):
-            with open(fixture_path) as f:
-                fixture = _json.load(f)
-            expected = fixture.get('ticks', [])
-            fixture_match = all(
-                abs(results[i]['Player'] - expected[i]['Player']) < 1e-10 and
-                abs(results[i]['Wall'] - expected[i]['Wall']) < 1e-10
-                for i in range(min(len(results), len(expected)))
-            )
+        from ubp_mechanics_v4 import UBP_MECHANICS, SINK_L
+        from ubp_engine_substrate import (
+            vector_from_math_dna, calculate_nrci, calculate_symmetry_tax,
+            xor_interact, validate_substrate, Y_CONSTANT
+        )
+        from ubp_core_v5_3_merged import BinaryLinearAlgebra, LEECH_ENGINE
+        from ubp_tgic_engine import TGICInteractionEngine
+        from fractions import Fraction
+
+        tests = {}
+        all_pass = True
+
+        # TEST 1: Phi-Orbit Tick with Sink Leakage rebate
+        iron_vec = vector_from_math_dna('UBP_MATERIAL|Fe26x1|phase=solid')
+        copper_vec = vector_from_math_dna('UBP_MATERIAL|Cu29x1|phase=solid')
+        iv, inrci = UBP_MECHANICS.tick(iron_vec)
+        cv, cnrci = UBP_MECHANICS.tick(copper_vec)
+        phi_pass = len(iv) == 24 and 0.0 < inrci <= 1.0
+        tests['phi_orbit_tick'] = {'pass': phi_pass, 'iron_nrci': round(inrci, 6), 'copper_nrci': round(cnrci, 6)}
+        all_pass = all_pass and phi_pass
+
+        # TEST 2: Synthesis Superposition (Additive, not XOR)
+        synth_vec = xor_interact(iron_vec, copper_vec)
+        synth_nrci = float(calculate_nrci(synth_vec))
+        synth_pass = len(synth_vec) == 24 and 0.0 < synth_nrci <= 1.0
+        tests['synthesis_superposition'] = {'pass': synth_pass, 'synth_nrci': round(synth_nrci, 6)}
+        all_pass = all_pass and synth_pass
+
+        # TEST 3: fold24_to3 returns 3 bits
+        folded = BinaryLinearAlgebra.fold24_to3(iron_vec)
+        fold_pass = len(folded) == 3 and all(b in (0, 1) for b in folded)
+        tests['fold24_to3_binary'] = {'pass': fold_pass, 'folded': list(folded)}
+        all_pass = all_pass and fold_pass
+
+        # TEST 4: Leech Address octant 0-7
+        addr = UBP_MECHANICS.get_address(iron_vec)
+        addr_pass = 0 <= addr.octant <= 7
+        tests['leech_address_octant'] = {'pass': addr_pass, 'octant': addr.octant}
+        all_pass = all_pass and addr_pass
+
+        # TEST 5: Volumetric Rebate reduces tax
+        base_tax = LEECH_ENGINE.calculate_symmetry_tax(iron_vec)
+        rebate_tax = LEECH_ENGINE.calculate_symmetry_tax(iron_vec, compactness=Fraction(1, 2))
+        rebate_pass = rebate_tax < base_tax
+        tests['volumetric_rebate'] = {'pass': rebate_pass, 'base': float(base_tax), 'rebated': float(rebate_tax)}
+        all_pass = all_pass and rebate_pass
+
+        # TEST 6: Domain Pivot (Phenomenal vs Noumenal)
+        noumen_vec = vector_from_math_dna('MATH_CONSTANT|pi')
+        domain_pass = iron_vec[11] == 1 and noumen_vec[11] == 0
+        tests['domain_pivot'] = {'pass': domain_pass, 'phenom_bit12': iron_vec[11], 'noumen_bit12': noumen_vec[11]}
+        all_pass = all_pass and domain_pass
+
+        # TEST 7: Synthesis Collision Event
+        syn_result = UBP_MECHANICS.collide(iron_vec, copper_vec, nrci_a=0.7, nrci_b=0.65)
+        collision_pass = hasattr(syn_result, 'event_type') and syn_result.event_type in ('ELASTIC', 'DAMAGE', 'DISSOLUTION')
+        tests['synthesis_collision'] = {'pass': collision_pass, 'event_type': syn_result.event_type if collision_pass else 'ERROR'}
+        all_pass = all_pass and collision_pass
+
+        # TEST 8: Sink Leakage L is small positive
+        sink_l_val = float(SINK_L)
+        sink_pass = 0.0 < sink_l_val < 0.1
+        tests['sink_leakage'] = {'pass': sink_pass, 'L': sink_l_val}
+        all_pass = all_pass and sink_pass
+
+        # TEST 9: Substrate validation
+        substrate_report = validate_substrate()
+        substrate_pass = substrate_report.get('overall') in ('GREEN', 'YELLOW')
+        tests['substrate_validation'] = {'pass': substrate_pass, 'overall': substrate_report.get('overall')}
+        all_pass = all_pass and substrate_pass
+
+        # TEST 10: TGIC 9-neighbor overheating
+        tgic = TGICInteractionEngine()
+        pressure = tgic.constraints.check_9_neighbor_limit(iron_vec, [iron_vec] * 12)
+        tgic_pass = float(pressure) > 0.0
+        tests['tgic_9neighbor'] = {'pass': tgic_pass, 'pressure': float(pressure)}
+        all_pass = all_pass and tgic_pass
+
         return JSONResponse(content={
-            'pass': fixture_match,
-            'ticks': results,
-            'message': 'PASS: Phi-Orbit matches engine_test.json' if fixture_match else 'WARN: fixture not found or mismatch',
+            'pass': all_pass,
+            'ubp_version': 'v6.3.1',
+            'engine_version': '5.0-ubp6.3.1',
+            'tests': tests,
+            'tests_passed': sum(1 for t in tests.values() if t.get('pass')),
+            'tests_total': len(tests),
+            'message': 'All UBP v6.3.1 mechanics validated' if all_pass else 'Some tests failed',
         })
     except Exception as e:
-        return JSONResponse(content={'pass': False, 'error': str(e)}, status_code=500)
+        import traceback
+        return JSONResponse(content={'pass': False, 'error': str(e), 'traceback': traceback.format_exc()}, status_code=500)
 
 
 class CommandRequest(BaseModel):

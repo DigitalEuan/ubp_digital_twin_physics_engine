@@ -208,12 +208,27 @@ class MaterialRecipe:
         """Compute macroscopic properties from the atomic composition."""
         total_count = sum(c for _, c in self.elements)
 
-        # Aggregate vector: XOR of all element vectors (weighted by count mod 2)
-        agg_vector = [0] * 24
+        # Aggregate vector: Additive Superposition + Phenomenal Collapse (v6.3.1)
+        # LAW_SYNTHESIS_SUPERPOSITION_001: Replace XOR 'Smash' with The Flow.
+        # Each element contributes count copies in bipolar {-1, +1} space.
+        # The sum is then collapsed: sum > 0 -> 0 (void), sum < 0 -> 1 (presence),
+        # sum == 0 -> 0 (Void/Deep Hole — equal pressures resolve to absence).
+        # Finally, Golay Coherence Snap is applied to ensure the result is a
+        # valid codeword (the substrate self-corrects the composite identity).
+        bipolar_sum = [0] * 24
         for elem, count in self.elements:
-            for _ in range(count % 2 if count % 2 != 0 else 1):
-                agg_vector = [agg_vector[i] ^ elem.vector[i] for i in range(24)]
-        self.aggregate_vector: List[int] = agg_vector
+            for _ in range(count):
+                for i in range(24):
+                    bipolar_sum[i] += (-1 if elem.vector[i] == 0 else 1)
+        # Phenomenal Collapse: sum > 0 -> 0 (void), sum < 0 -> 1 (presence)
+        collapsed = [0 if s >= 0 else 1 for s in bipolar_sum]
+        # Golay Coherence Snap: ensure valid codeword
+        try:
+            from ubp_engine_substrate import coherence_snap
+            snapped, _ = coherence_snap(collapsed)
+            self.aggregate_vector: List[int] = snapped
+        except Exception:
+            self.aggregate_vector: List[int] = collapsed
 
         # Aggregate NRCI: weighted average
         total_nrci = sum(Fraction(str(elem.nrci_score)) * count

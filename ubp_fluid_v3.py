@@ -43,9 +43,12 @@ from ubp_entity_v3 import (
     D, D0, D1, to_decimal
 )
 from ubp_engine_substrate import (
-    Y_CONSTANT, Y_INV, SINK_L, G_EARTH_MS2,
+    Y_CONSTANT, Y_INV, SINK_L, G_EARTH_MS2, PI,
     calculate_nrci, hamming_distance,
 )
+# UBP 50-term π (exact rational) converted to float for SPH kernel arithmetic
+# This replaces math.pi throughout the SPH kernels to use the UBP substrate π.
+_PI_FLOAT: float = float(PI)  # ≈ 3.14159265358979...  (50-term precision)
 from ubp_materials import MaterialRegistry
 
 # ---------------------------------------------------------------------------
@@ -91,26 +94,33 @@ _FLUID_V_MAX: Decimal = _V_MAX / D('2')
 # ---------------------------------------------------------------------------
 
 def _poly6_kernel(r: float, h: float) -> float:
-    """Poly6 density kernel W(r,h)."""
+    """
+    Poly6 density kernel W(r,h).
+    Uses UBP 50-term π (_PI_FLOAT) instead of math.pi.
+    """
     if r >= h:
         return 0.0
     h2 = h * h
     r2 = r * r
-    coeff = 315.0 / (64.0 * math.pi * h**9)
+    coeff = 315.0 / (64.0 * _PI_FLOAT * h**9)
     return coeff * (h2 - r2)**3
-
 def _spiky_gradient(r: float, h: float, dx: float, dy: float, dz: float) -> Tuple[float, float, float]:
-    """Spiky kernel gradient for pressure forces."""
+    """
+    Spiky kernel gradient for pressure forces.
+    Uses UBP 50-term π (_PI_FLOAT) instead of math.pi.
+    """
     if r >= h or r < 1e-10:
         return (0.0, 0.0, 0.0)
-    coeff = -45.0 / (math.pi * h**6) * (h - r)**2 / r
+    coeff = -45.0 / (_PI_FLOAT * h**6) * (h - r)**2 / r
     return (coeff * dx, coeff * dy, coeff * dz)
-
 def _viscosity_laplacian(r: float, h: float) -> float:
-    """Viscosity kernel Laplacian."""
+    """
+    Viscosity kernel Laplacian.
+    Uses UBP 50-term π (_PI_FLOAT) instead of math.pi.
+    """
     if r >= h:
         return 0.0
-    return 45.0 / (math.pi * h**6) * (h - r)
+    return 45.0 / (_PI_FLOAT * h**6) * (h - r)
 
 # ---------------------------------------------------------------------------
 # FLUID PARTICLE
@@ -266,6 +276,10 @@ class FluidBodyV3:
         mu_T = self.mu * T_STP / max(ambient_temperature_ubp, 0.001)
 
         # ---- 1. DENSITY AND PRESSURE ----
+        # v6.3.1: Pressure stiffness is modulated by the particle's NRCI.
+        # High NRCI (coherent fluid) -> normal stiffness.
+        # Low NRCI (stressed fluid) -> reduced stiffness (more compressible).
+        # This reflects the UBP principle that coherent matter resists compression.
         for i, pi in enumerate(self.particles):
             rho = 0.0
             for j, pj in enumerate(self.particles):
@@ -275,8 +289,10 @@ class FluidBodyV3:
                 r = math.sqrt(dx*dx + dy*dy + dz*dz)
                 rho += _poly6_kernel(r, self.h)
             pi.density = max(rho, 0.001)
-            # Pressure = k × (ρ - ρ₀) — positive when compressed
-            pi.pressure = self.k * (pi.density - self.rho0)
+            # Pressure = k * nrci_factor * (ρ - ρ₀)
+            # nrci_factor in [0.5, 1.0]: NRCI modulates stiffness
+            nrci_factor = max(0.5, min(1.0, pi.nrci))
+            pi.pressure = self.k * nrci_factor * (pi.density - self.rho0)
 
         # ---- 2-5. FORCES ----
         ax_list = [0.0] * n
@@ -346,9 +362,14 @@ class FluidBodyV3:
     def _handle_solid_collisions(self, solid_entities: List[UBPEntityV3]) -> None:
         """
         Resolve fluid particle collisions with solid entities.
-        Particles bounce off solid surfaces with restitution based on
-        the Hamming distance between the particle's material vector
-        and the solid's material vector.
+
+        v6.3.1 UPDATE: Restitution is now computed via Synthesis Superposition
+        (Additive Superposition + Phenomenal Collapse) between the fluid
+        material vector and the solid's Golay vector, then NRCI of the result.
+
+        This replaces the old Hamming-distance heuristic with the true UBP
+        synthesis event: the fluid and solid 'interact' at the boundary, and
+        the coherence of the result determines how much energy is preserved.
         """
         water_vec = MaterialRegistry.get('water').aggregate_vector
 
@@ -362,9 +383,13 @@ class FluidBodyV3:
                     bb.min_y <= p.y <= float(bb.max_y) and
                     bb.min_z <= p.z <= float(bb.max_z)):
 
-                    # Compute restitution from Hamming distance
-                    dH = hamming_distance(water_vec, entity.golay_vector)
-                    restitution = 1.0 - dH / 24.0
+                    # v6.3.1: Synthesis Superposition for restitution
+                    # Additive superposition of fluid and solid vectors
+                    b_w = [-1 if x == 0 else 1 for x in water_vec]
+                    b_e = [-1 if x == 0 else 1 for x in entity.golay_vector]
+                    raw_sum = [b_w[i] + b_e[i] for i in range(24)]
+                    synth_vec = [0 if s >= 0 else 1 for s in raw_sum]
+                    restitution = float(calculate_nrci(synth_vec))
 
                     # Find closest face and push out
                     # Distances to each face

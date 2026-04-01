@@ -35,8 +35,10 @@ from ubp_entity_v3 import (
     Orientation, AABB, D, D0, D1, to_decimal
 )
 from ubp_engine_substrate import (
-    Y_CONSTANT, SINK_L, calculate_nrci, hamming_distance,
+    Y_CONSTANT, SINK_L, PI, calculate_nrci, hamming_distance,
 )
+# UBP 50-term π for angle conversions (replaces math.pi)
+_PI_FLOAT: float = float(PI)
 
 # ---------------------------------------------------------------------------
 # CONSTANTS
@@ -218,7 +220,7 @@ class PivotConstraintV3:
         return {
             'lever_id': self.lever.entity_id,
             'pivot': self.pivot_world.to_dict(),
-            'angle_deg': float(self.angle) * 180.0 / math.pi,
+            'angle_deg': float(self.angle) * 180.0 / _PI_FLOAT,
             'angular_velocity': float(self.angular_velocity),
             'moment_of_inertia': float(self.moment_of_inertia()),
             'topological_cost': float(self.topological_cost()),
@@ -271,11 +273,21 @@ class UBPRigidBodyEngineV3:
         """
         Compute the net torque on a lever from all entities resting on it.
 
-        Torque = Σ (F_i × r_i) for each entity on the lever
-        where F_i = entity.mass × g (downward force)
-        and r_i = signed distance from pivot to entity's centre of mass
+        UBP Torque Formula (v6.3.1):
+          Torque = Σ (F_i × r_i) for each entity on the lever
+          where F_i = entity.mass × g (downward force)
+          and r_i = signed distance from pivot to entity's centre of mass
 
-        The Topological Torque cost is also computed (LAW_TOPOLOGICAL_TORQUE_001).
+        Topological Resistance (LAW_TOPOLOGICAL_TORQUE_001):
+          The lever's Symmetry Tax acts as a rotational resistance.
+          The net torque is reduced by the Topological Cost:
+            T_net_effective = T_net - sign(T_net) * topo_cost * Y
+          This ensures the lever cannot rotate without paying the geometric
+          cost of changing its orientation in the Leech Lattice.
+
+        The Hamming distance between the lever's vector and each load entity's
+        vector modulates the friction at the contact point:
+          friction_factor = 1 - dH/24  (closer vectors = more friction)
         """
         net_torque = D0
 
@@ -296,16 +308,32 @@ class UBPRigidBodyEngineV3:
             entity_com_x = entity.position.x + entity.size[0] / D('2')
             r = entity_com_x - constraint.pivot_world.x
 
+            # UBP Contact Friction: Hamming distance between lever and load
+            # Closer vectors (lower dH) = more friction = less torque transfer
+            dH = hamming_distance(constraint.lever.golay_vector, entity.golay_vector)
+            # friction_factor: 0 (identical vectors, full friction) to 1 (max distance, no friction)
+            friction_factor = D(str(dH)) / D('24')
+            # Effective force after friction: F_eff = F * friction_factor
+            # (Entities with same material as lever transfer less torque due to adhesion)
+            F_eff = F * (D('0.5') + friction_factor * D('0.5'))  # Range [0.5F, F]
+
             # Torque (positive = counterclockwise when viewed from +z)
             # Downward force at positive r creates negative (clockwise) torque
-            net_torque -= F * r
+            net_torque -= F_eff * r
 
-        # Angular acceleration
+        # Topological Resistance: reduce torque by the Topological Cost * Y
+        # This is the geometric rent the lever pays to change orientation
+        topo_cost = constraint.topological_cost()
+        if net_torque != D0:
+            sign = D('1') if net_torque > D0 else D('-1')
+            resistance = topo_cost * _Y
+            # Resistance cannot exceed the torque itself (no reversal)
+            resistance = min(abs(net_torque), resistance)
+            net_torque -= sign * resistance
+
+        # Angular acceleration: α = τ / I
         I = constraint.moment_of_inertia()
         alpha = net_torque / I if I > D0 else D0
-
-        # Topological cost
-        topo_cost = constraint.topological_cost()
 
         return TorqueResult(
             entity_id=constraint.lever.entity_id,

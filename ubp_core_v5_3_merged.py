@@ -132,13 +132,22 @@ class BinaryLinearAlgebra:
 
     @staticmethod
     def fold24_to3(vector: List[int]) -> Tuple[int, int, int]:
-        """Sums bits in three 8-bit octets to give (x, y, z) in range [0, 8]."""
+        """
+        [LAW_GEO_FOLD_001] Folds a 24-bit vector down to 3 bits via recursive
+        pairwise XOR. Reveals the core tension of the manifold.
+
+        v6.3.1 UPDATE: Changed from octet-sum to recursive XOR folding.
+        Old method (octet sums) gave range [0,8] — not a true topological fold.
+        New method: 24 -> 12 -> 6 -> 3 bits via pairwise XOR.
+        Each output bit is 0 or 1, representing the fundamental polarity of
+        each spatial axis after the manifold has been fully compressed.
+        """
         if len(vector) != 24:
             raise ValueError("Vector must be 24 bits")
-        x = sum(vector[0:8])
-        y = sum(vector[8:16])
-        z = sum(vector[16:24])
-        return (x, y, z)
+        v = list(vector)
+        for n in (12, 6, 3):
+            v = [v[2 * i] ^ v[2 * i + 1] for i in range(n)]
+        return (v[0], v[1], v[2])
 
 
 # ==============================================================================
@@ -446,18 +455,41 @@ class LeechLatticeEngine:
         self.Y_CONST = constants['Y_CONST']
         self.OBSERVER_FIXED_POINT = constants['Y_INV']
     
-    def calculate_symmetry_tax(self, point: List[int]) -> Fraction:
-        """LAW_SYMMETRY_001: Symmetry Tax calculation (Exact Fraction)."""
+    def calculate_symmetry_tax(self, point: List[int], compactness: Fraction = None) -> Fraction:
+        """
+        [LAW_SYMMETRY_001] Symmetry Tax calculation (Exact Fraction).
+
+        v6.3.1 UPDATE: Implements the Volumetric Rebate (Section 4.2).
+        When compactness (C) is provided, the adjusted tax is:
+            T_adj = T_base * (1 - C/13)
+        where C = V^(2/3) / Surface_Area (voxel compactness of the entity).
+
+        The 13 in the denominator is the 13D Sink pivot — the same constant
+        that governs the Leakage L = wobble/13. Compact entities (spheres,
+        cubes) pay less tax because they are more topologically efficient.
+        """
         if len(point) != 24:
             raise ValueError("Point must have 24 elements")
-        
+
         hamming = sum(1 for x in point if x != 0)
         norm_sq = sum(x * x for x in point)
         Y = self.Y_CONSTANT
-        
-        # Exact Calculation: (Hamming * Y) + (NormSq / 8)
-        tax = (Fraction(hamming, 1) * Y) + Fraction(norm_sq, 8)
-        return tax
+
+        # Base Tax: (Hamming * Y) + (NormSq / 8)
+        base_tax = (Fraction(hamming, 1) * Y) + Fraction(norm_sq, 8)
+
+        # Apply Volumetric Rebate if compactness (C) is provided
+        # Formula: T_adj = T_base * (1 - C/13)
+        if compactness is not None:
+            rebate_factor = Fraction(1, 1) - (compactness / Fraction(13, 1))
+            # Clamp rebate_factor to [0.5, 1.0] — never more than 50% reduction
+            if rebate_factor < Fraction(1, 2):
+                rebate_factor = Fraction(1, 2)
+            if rebate_factor > Fraction(1, 1):
+                rebate_factor = Fraction(1, 1)
+            return base_tax * rebate_factor
+
+        return base_tax
     
     def rank_by_stability(self, points: List[List[int]]) -> List[Tuple[List[int], Fraction]]:
         """Rank points by stability (lower tax = more stable)."""

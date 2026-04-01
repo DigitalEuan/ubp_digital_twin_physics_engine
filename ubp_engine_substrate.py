@@ -180,19 +180,21 @@ def coherence_snap(noisy_vector: List[int]) -> Tuple[List[int], Dict[str, Any]]:
     """
     return GOLAY_ENGINE.snap_to_codeword(noisy_vector)
 
-def calculate_symmetry_tax(vector_24bit: List[int]) -> Fraction:
+def calculate_symmetry_tax(vector_24bit: List[int], compactness: Optional[Fraction] = None) -> Fraction:
     """
     Calculate the Symmetry Tax (LAW_SYMMETRY_001) for a 24-bit vector.
 
     Tax = (Hamming_Weight × Y) + (Norm² / 8)
 
+    v6.3.1 UPDATE: When compactness (C) is provided, the Volumetric Rebate
+    is applied: T_adj = T_base * (1 - C/13).
     This is the UBP equivalent of mass-energy. It represents the geometric
     cost the substrate must pay to maintain this entity's identity.
     Higher tax = heavier/more complex entity.
     """
-    return LEECH_ENGINE.calculate_symmetry_tax(vector_24bit)
+    return LEECH_ENGINE.calculate_symmetry_tax(vector_24bit, compactness=compactness)
 
-def calculate_nrci(vector_24bit: List[int]) -> Fraction:
+def calculate_nrci(vector_24bit: List[int], compactness: Optional[Fraction] = None) -> Fraction:
     """
     Calculate the Non-Random Coherence Index (NRCI) for a 24-bit vector.
 
@@ -200,8 +202,11 @@ def calculate_nrci(vector_24bit: List[int]) -> Fraction:
 
     Maps stability between 1.0 (perfect codeword, maximum coherence) and
     approaching 0.0 (Deep Hole, informational dissolution).
+
+    v6.3.1 UPDATE: When compactness (C) is provided, the Volumetric Rebate
+    is applied to the tax before computing NRCI.
     """
-    tax = calculate_symmetry_tax(vector_24bit)
+    tax = calculate_symmetry_tax(vector_24bit, compactness=compactness)
     return Fraction(10, 1) / (Fraction(10, 1) + tax)
 
 def hamming_weight(vector: List[int]) -> int:
@@ -218,14 +223,39 @@ def vector_from_math_dna(math_dna: str) -> List[int]:
     Uses SHA-256 fingerprinting (SOP_002 standard) to generate the noumenal seed,
     then encodes it into a full 24-bit phenomenal codeword.
 
+    v6.3.1 UPDATE: Enforces the Domain Pivot at Bit 12 (Index 11).
+    Bit 11 of the 12-bit message seed is set to 1 for Phenomenal domains
+    (matter/substance/mechanism) and 0 for Noumenal domains (math/meaning).
+
+    Domain detection from math_dna:
+      - 'phase=solid' or 'phase=liquid' or 'PHYS_' or 'ELEM_' or 'MAT_' -> Phenomenal (1)
+      - 'phase=gas' or 'MATH_' or 'ALGO_' or 'MEANING_' -> Noumenal (0)
+      - Default: Phenomenal (1) for engine entities (they exist in space)
+
     This is how every entity in the engine gets its unique geometric identity.
     """
     h = hashlib.sha256(math_dna.encode('utf-8')).digest()
-    # Extract 12-bit noumenal seed from first two bytes
-    seed_int = ((h[0] << 8) | h[1]) & 0xFFF
+    # Extract 11-bit payload from first two bytes (bits 0-10)
+    seed_int = ((h[0] << 8) | h[1]) & 0x7FF  # 11 bits only
     if seed_int == 0:
         seed_int = 137  # Prevent void collapse (fine structure constant proxy)
-    msg_bits = [(seed_int >> i) & 1 for i in range(11, -1, -1)]
+    payload_bits = [(seed_int >> i) & 1 for i in range(10, -1, -1)]  # 11 bits
+
+    # Determine Domain Pivot (Bit 12, Index 11)
+    # Phenomenal = 1: matter exists in space (solid, liquid, mechanism)
+    # Noumenal = 0: abstract (gas, math, algorithm, meaning)
+    dna_upper = math_dna.upper()
+    is_noumenal = (
+        'phase=gas' in math_dna.lower() or
+        dna_upper.startswith('MATH_') or
+        dna_upper.startswith('ALGO_') or
+        dna_upper.startswith('MEANING_') or
+        dna_upper.startswith('NUM_')
+    )
+    domain_pivot = 0 if is_noumenal else 1  # Default: Phenomenal
+
+    # Construct 12-bit message: [11 payload bits] + [1 domain pivot bit]
+    msg_bits = payload_bits + [domain_pivot]
     return GOLAY_ENGINE.encode(msg_bits)
 
 def get_ontological_layers(vector_24bit: List[int]) -> Dict[str, Fraction]:
@@ -240,12 +270,30 @@ def get_ontological_layers(vector_24bit: List[int]) -> Dict[str, Fraction]:
 
 def xor_interact(v1: List[int], v2: List[int]) -> List[int]:
     """
-    Perform a UBP interaction (XOR 'Smash') between two 24-bit vectors,
-    then snap the result to the nearest Golay codeword.
-    This models the collision/interaction of two entities.
+    Perform a UBP Synthesis interaction between two 24-bit vectors.
+
+    v6.3.1 UPDATE: Replaced XOR 'Smash' with Additive Superposition +
+    Phenomenal Collapse (The Flow).
+
+    Process:
+      1. Convert binary {0,1} to bipolar {-1,+1}: 0->-1, 1->+1
+      2. Sum bipolar vectors element-wise (Z^24 superposition)
+      3. Collapse: sum>0 -> 0, sum<0 -> 1, sum=0 -> 0 (Void/Deep Hole)
+      4. Apply Golay Coherence Snap to the collapsed vector
+
+    The Void collapse (sum=0 -> 0) reflects the UBP principle that when
+    two equal pressures meet, the substrate resolves to the Deep Hole
+    rather than an arbitrary binary choice.
     """
-    raw = [(a ^ b) for a, b in zip(v1, v2)]
-    snapped, _ = coherence_snap(raw)
+    # Step 1: Convert to bipolar (-1, +1)
+    b1 = [-1 if a == 0 else 1 for a in v1]
+    b2 = [-1 if a == 0 else 1 for a in v2]
+    # Step 2: Additive superposition
+    combined = [b1[i] + b2[i] for i in range(len(v1))]
+    # Step 3: Phenomenal collapse
+    collapsed = [0 if s >= 0 else 1 for s in combined]
+    # Step 4: Golay coherence snap
+    snapped, _ = coherence_snap(collapsed)
     return snapped
 
 def get_relational_pull(

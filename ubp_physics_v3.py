@@ -230,11 +230,21 @@ class UBPPhysicsEngineV3:
         self, entity_a: UBPEntityV3, entity_b: UBPEntityV3, axis: str = 'y',
     ) -> Tuple[Velocity, Velocity]:
         """
-        Resolve collision using UBP XOR Smash.
-        Restitution = NRCI(a.vector XOR b.vector)
+        Resolve collision using UBP Synthesis Superposition (v6.3.1).
+
+        Restitution = NRCI of the Synthesis result vector.
+        The Synthesis result is computed via Additive Superposition +
+        Phenomenal Collapse (The Flow), matching the updated xor_interact.
+
+        High NRCI -> elastic (bouncy, coherent entities).
+        Low NRCI -> inelastic (dissipative, stressed entities).
         """
-        xor_vec = [a ^ b for a, b in zip(entity_a.golay_vector, entity_b.golay_vector)]
-        restitution = to_decimal(calculate_nrci(xor_vec))
+        # v6.3.1: Additive Superposition + Phenomenal Collapse
+        b_a = [-1 if x == 0 else 1 for x in entity_a.golay_vector]
+        b_b = [-1 if x == 0 else 1 for x in entity_b.golay_vector]
+        raw_sum = [b_a[i] + b_b[i] for i in range(24)]
+        synth_vec = [0 if s >= 0 else 1 for s in raw_sum]
+        restitution = to_decimal(calculate_nrci(synth_vec))
 
         # V4.0: Synthesis Collision Event (LAW_PHI_ORBIT_1953 / 6-Step Flow)
         # Apply NRCI damage from the Golay gap to both entities

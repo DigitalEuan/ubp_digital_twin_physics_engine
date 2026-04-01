@@ -37,7 +37,9 @@ from ubp_physics_v3 import UBPPhysicsEngineV3, _G_PER_TICK_SQ
 from ubp_rigid_body_v3 import UBPRigidBodyEngineV3, PivotConstraintV3
 from ubp_fluid_v3 import FluidBodyV3
 from ubp_materials import AmbientEnvironment, MaterialRegistry
-from ubp_engine_substrate import Y_CONSTANT, SINK_L
+from ubp_engine_substrate import Y_CONSTANT, SINK_L, PI
+# UBP 50-term π for angle display (replaces math.pi)
+_PI_FLOAT: float = float(PI)
 
 # UBP v4.0 Mechanics
 try:
@@ -46,6 +48,15 @@ try:
 except ImportError:
     _UBP_MECHANICS_AVAILABLE = False
     UBP_MECHANICS = None
+
+# TGIC Engine for manifold-wide 9-neighbor overheating check
+try:
+    from ubp_tgic_engine import TGICInteractionEngine
+    _TGIC_ENGINE = TGICInteractionEngine()
+    _TGIC_AVAILABLE = True
+except ImportError:
+    _TGIC_ENGINE = None
+    _TGIC_AVAILABLE = False
 
 _Y = to_decimal(Y_CONSTANT)
 _SINK_L = to_decimal(SINK_L)
@@ -319,6 +330,28 @@ class UBPSpaceV3:
                 all_fluid_bodies=self._fluid_bodies,  # V3.2: cross-body interaction
             )
 
+        # ---- V5.0: TGIC MANIFOLD PRESSURE (LAW_TGIC_9NEIGHBOR_001) ----
+        # v6.3.1 UPDATE: Apply the 9-neighbor overheating penalty to all
+        # non-static entities. If an entity has more than 9 Leech-neighbors
+        # (Hamming distance ≤ 8), it pays an overheating penalty to its NRCI.
+        # This implements the UBP 3-6-9 law at the manifold level.
+        if _TGIC_AVAILABLE and _TGIC_ENGINE is not None:
+            all_vectors = [e.golay_vector for e in self._entity_list]
+            for entity in self._entity_list:
+                if entity.is_static:
+                    continue
+                # Exclude self from manifold for neighbor count
+                other_vectors = [v for v in all_vectors if v != entity.golay_vector]
+                # Overheating pressure = max(0, neighbors - 9) * Y
+                pressure = _TGIC_ENGINE.constraints.check_9_neighbor_limit(
+                    entity.golay_vector, other_vectors
+                )
+                if pressure > 0 and entity.nrci_state is not None:
+                    # Apply pressure as NRCI damage (scaled by 1/1000 per tick
+                    # to avoid catastrophic dissolution from crowding alone)
+                    damage = float(pressure) * 0.001
+                    entity.apply_synthesis_damage(damage)
+
         # ---- V4.0: DISSOLUTION CULLING (LAW_TOPOLOGICAL_BUFFER_001) ----
         dissolved_ids = []
         synthesis_log = []
@@ -418,7 +451,7 @@ class UBPSpaceV3:
         for c in self.rigid_body.constraints:
             lever_states.append({
                 'lever_id': c.lever.entity_id,
-                'angle_deg': float(c.angle) * 180.0 / math.pi,
+                'angle_deg': float(c.angle) * 180.0 / _PI_FLOAT,
                 'pivot': c.pivot_world.to_dict(),
                 'angular_velocity': float(c.angular_velocity),
                 'topological_cost': float(c.topological_cost()),
@@ -432,7 +465,7 @@ class UBPSpaceV3:
         return {
             'tick': self.tick,
             'time_s': round(self.time_seconds, 4),
-            'engine_version': '4.0',
+            'engine_version': '5.0-ubp6.3.1',
             'ubp_mechanics': _UBP_MECHANICS_AVAILABLE,
             'ambient': {
                 'temperature_K': round(float(self.ambient.temperature_K), 2),
@@ -486,7 +519,7 @@ class UBPSpaceV3:
             )
         for c in self.rigid_body.constraints:
             lines.append(
-                f"  Lever [{c.lever.label}]: angle={float(c.angle)*180/math.pi:.2f}° "
+                f"  Lever [{c.lever.label}]: angle={float(c.angle)*180/_PI_FLOAT:.2f}° "
                 f"ω={float(c.angular_velocity):.5f} rad/tick"
             )
         return '\n'.join(lines)

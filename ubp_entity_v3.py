@@ -115,6 +115,15 @@ class Position:
     y: Decimal = D0
     z: Decimal = D0
 
+    def __post_init__(self):
+        """Coerce all coordinates to Decimal so Position(5.0, 2.0, 0.0) works."""
+        if not isinstance(self.x, Decimal):
+            object.__setattr__(self, 'x', to_decimal(self.x))
+        if not isinstance(self.y, Decimal):
+            object.__setattr__(self, 'y', to_decimal(self.y))
+        if not isinstance(self.z, Decimal):
+            object.__setattr__(self, 'z', to_decimal(self.z))
+
     def quantise(self) -> 'Position':
         """Snap to Planck grid (10^-12)."""
         return Position(
@@ -470,16 +479,21 @@ class UBPEntityV3:
                 self._phi_tick_counter = 0
                 new_vec, new_nrci = UBP_MECHANICS.tick(self.golay_vector)
                 self.golay_vector = new_vec
-                self.nrci = calculate_nrci(self.golay_vector)
+                # v6.3.1: NRCI uses Sink Leakage rebate: NRCI = 10 / (10 + tax*(1-L))
+                # UBP_MECHANICS.tick() already applies the rebate in _compute_nrci.
+                # Recompute symmetry_tax (base, without rebate) for reporting.
                 self.symmetry_tax = calculate_symmetry_tax(self.golay_vector)
+                # NRCI stored on entity uses the rebate-adjusted value from tick()
+                self.nrci = Fraction(str(round(new_nrci, 12)))
                 # Update NCRIState
                 self.nrci_state.vector = new_vec
                 self.nrci_state.nrci = new_nrci
+                self.nrci_state.symmetry_tax = float(self.symmetry_tax)
                 self.nrci_state.tick_phase = (self.nrci_state.tick_phase + 1) % 1953
                 self.nrci_state.total_ticks += 1
-                # Update lattice cell
+                # Update lattice cell (v6.3.1: now returns 3-bit octant)
                 self.lattice_cell = UBP_MECHANICS.fold_to_cell(new_vec)
-                # Check dissolution
+                # Check dissolution against Topological Buffer threshold
                 if new_nrci < 0.40 and not self.is_static:
                     self.is_dissolving = True
         else:

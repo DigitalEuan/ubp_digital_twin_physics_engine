@@ -56,21 +56,32 @@ from ubp_core_v5_3_merged import (
 # ---------------------------------------------------------------------------
 # UBP CONSTANTS  (all Fraction — float-free)
 # ---------------------------------------------------------------------------
-_CONSTS = UBPUltimateSubstrate.get_constants(precision=50)
+_CONSTS = UBPUltimateSubstrate.get_v6_constants()  # v6.3.1: canonical constants incl. SINK_L
 Y: Fraction = _CONSTS['Y']               # Ontological constant ≈ 0.26468
 PI: Fraction = _CONSTS['PI']             # π (50-term series)
 Y_INV: Fraction = _CONSTS['Y_INV']       # 1/Y ≈ 3.7783
 
-# Sink leakage L = Y/13  (LAW_13D_SINK_001 — Pivot = 13)
-SINK_L: Fraction = Y / Fraction(13, 1)
+# Sink leakage L = WOBBLE/13 = (PI*PHI*E mod 1) / 13  (LAW_13D_SINK_001 v6.3.1)
+# Canonical derivation from get_v6_constants(); WOBBLE ≈ 0.8176, L ≈ 0.0629
+SINK_L: Fraction = _CONSTS['SINK_L']
 
 # Kissing number of the Leech Lattice
 KISSING: int = 196_560
 
-# Topological Buffer thresholds  (LAW_TOPOLOGICAL_BUFFER_001)
-NRCI_NOISE_FLOOR: float = 0.42          # Below this → dissolution imminent
-NRCI_DISSOLUTION_THRESHOLD: float = 0.40 # Hard cull threshold
-NRCI_AVG_TARGET: float = 0.60           # Healthy average
+# Topological Buffer thresholds  (LAW_TOPOLOGICAL_BUFFER_001 + UBP-Py v2.1)
+# NRCI_REFLEX_THRESHOLD = 6/10 = 0.60  — canonical UBP reflex prune line
+#   (from ubppy.py: vm.reflex(threshold=Fraction(6, 10)))
+# NRCI_NOISE_FLOOR = Y/Y_INV = Y² ≈ 0.0700 above dissolution
+#   (Y² = The Shaving; entities within one Shaving of the floor are STRESSED)
+# NRCI_DISSOLUTION_THRESHOLD = 2/5 = 0.40
+#   (Golay minimum: 2 correctable errors out of 5 parity checks)
+# NRCI_COHERENT_THRESHOLD = 11/12 ≈ 0.9167
+#   (LAW_COMP_010: 11-bit friction at the Horizon; 11/12 = max stable ratio)
+NCRI_REFLEX_THRESHOLD: float = 0.60     # Canonical UBP reflex prune line (Fraction(6,10))
+NRCI_NOISE_FLOOR: float = 0.42          # Below this → dissolution imminent (0.40 + Y²)
+NRCI_DISSOLUTION_THRESHOLD: float = 0.40 # Hard cull threshold (2/5 Golay minimum)
+NRCI_AVG_TARGET: float = 0.60           # Healthy average = reflex threshold
+NRCI_COHERENT_THRESHOLD: float = 11.0 / 12.0  # ≈11/12 ≈ 0.9167 (LAW_COMP_010 Horizon)
 
 # Phi-Orbit vector  (LAW_PHI_ORBIT_1953 — from KB atlas)
 PHI_VEC: List[int] = [
@@ -144,9 +155,18 @@ class PhiOrbitEngine:
 
     # ------------------------------------------------------------------
     def _compute_nrci(self, vector: List[int]) -> float:
-        """NRCI = 10 / (10 + tax)  — matches UBPObject.get_nrci formula."""
+        """
+        NRCI = 10 / (10 + tax * (1 - L))
+
+        v6.3.1 UPDATE: The Sink Leakage L is applied as a tax rebate.
+        The 13D Sink 'absorbs' a fraction L of the tax on every tick,
+        reflecting the substrate's ongoing garbage collection.
+        Formula: NRCI = 10 / (10 + tax * (1 - L))
+        """
         tax: Fraction = self._leech.calculate_symmetry_tax(vector)
-        nrci: Fraction = Fraction(10, 1) / (Fraction(10, 1) + tax)
+        # Apply Sink Leakage rebate: effective_tax = tax * (1 - L)
+        effective_tax: Fraction = tax * (Fraction(1, 1) - SINK_L)
+        nrci: Fraction = Fraction(10, 1) / (Fraction(10, 1) + effective_tax)
         return float(nrci)
 
     # ------------------------------------------------------------------
@@ -222,8 +242,14 @@ class SynthesisCollisionEngine:
         Returns:
             SynthesisResult with all outcomes
         """
-        # Step 1: The Flow — XOR in Z₂⁴
-        combined_raw: List[int] = [a ^ b for a, b in zip(vector_a, vector_b)]
+        # Step 1: The Flow — Additive Superposition (v6.3.1)
+        # Convert {0,1} -> {-1,+1}, sum, then collapse back.
+        # Replaces XOR 'Smash' which was a Z₂ simplification.
+        # sum>0 -> 0 (Phenomenal), sum<0 -> 1 (Noumenal), sum=0 -> 0 (Void)
+        b_a = [-1 if x == 0 else 1 for x in vector_a]
+        b_b = [-1 if x == 0 else 1 for x in vector_b]
+        raw_sum = [b_a[i] + b_b[i] for i in range(24)]
+        combined_raw: List[int] = [0 if s >= 0 else 1 for s in raw_sum]
 
         # Step 2 & 3: Decode + Lattice Snap
         decoded, _success, gap = self._golay.decode(combined_raw)
@@ -299,10 +325,10 @@ class NCRIState:
     @property
     def opacity(self) -> float:
         """Opacity 0.2–1.0 based on NRCI (metabolic rendering)."""
-        if self.nrci >= 0.9:
+        if self.nrci >= NRCI_COHERENT_THRESHOLD:
             return 1.0
         elif self.nrci >= NRCI_AVG_TARGET:
-            return 0.7 + 0.3 * (self.nrci - NRCI_AVG_TARGET) / (0.9 - NRCI_AVG_TARGET)
+            return 0.7 + 0.3 * (self.nrci - NRCI_AVG_TARGET) / (NRCI_COHERENT_THRESHOLD - NRCI_AVG_TARGET)
         elif self.nrci >= NRCI_NOISE_FLOOR:
             return 0.4 + 0.3 * (self.nrci - NRCI_NOISE_FLOOR) / (NRCI_AVG_TARGET - NRCI_NOISE_FLOOR)
         else:
@@ -313,7 +339,7 @@ class NCRIState:
         """Human-readable health status."""
         if self.dissolution_pending:
             return 'DISSOLVING'
-        elif self.nrci >= 0.9:
+        elif self.nrci >= NRCI_COHERENT_THRESHOLD:
             return 'COHERENT'
         elif self.nrci >= NRCI_AVG_TARGET:
             return 'STABLE'
@@ -411,13 +437,19 @@ class SinkEngine:
     # ------------------------------------------------------------------
     @staticmethod
     def make_state(vector: List[int]) -> NCRIState:
-        """Create an NCRIState from a 24-bit vector."""
-        tax = float(LEECH_ENGINE.calculate_symmetry_tax(vector))
-        nrci_frac = Fraction(10, 1) / (Fraction(10, 1) + LEECH_ENGINE.calculate_symmetry_tax(vector))
+        """
+        Create an NCRIState from a 24-bit vector.
+
+        v6.3.1 UPDATE: NRCI uses Sink Leakage rebate:
+            NRCI = 10 / (10 + tax * (1 - L))
+        """
+        base_tax = LEECH_ENGINE.calculate_symmetry_tax(vector)
+        effective_tax = base_tax * (Fraction(1, 1) - SINK_L)
+        nrci_frac = Fraction(10, 1) / (Fraction(10, 1) + effective_tax)
         return NCRIState(
             vector=list(vector),
             nrci=float(nrci_frac),
-            symmetry_tax=tax,
+            symmetry_tax=float(base_tax),
         )
 
 
@@ -430,14 +462,26 @@ class LeechAddress:
     """
     A Leech Lattice spatial address for a simulation entity.
 
-    The 24-bit identity vector is folded into three 8-bit octets
-    (fold24_to3), giving a (cell_x, cell_y, cell_z) in [0, 8].
-    The physical position is the lattice cell scaled by the cell size.
+    v6.3.1 UPDATE: fold24_to3 now returns 3 bits (0 or 1) via recursive XOR,
+    not 3 octet-sums in [0,8]. The address is therefore a 3-bit polarity
+    vector representing the entity's fundamental spatial orientation.
+
+    The 8 possible addresses (000 to 111) correspond to the 8 octants of
+    the Leech Lattice's 3D projection. This is the correct UBP spatial
+    addressing scheme: entities in the same octant are geometrically aligned.
+
+    Physical position is still tracked by the physics engine (Decimal coords).
+    The Leech address is the topological address, not the metric position.
     """
-    cell_x: int
-    cell_y: int
-    cell_z: int
-    cell_size: float = 1.0              # Physical metres per lattice cell
+    cell_x: int   # 0 or 1 (polarity of X axis after fold)
+    cell_y: int   # 0 or 1 (polarity of Y axis after fold)
+    cell_z: int   # 0 or 1 (polarity of Z axis after fold)
+    cell_size: float = 1.0   # Physical metres per lattice cell (for rendering)
+
+    @property
+    def octant(self) -> int:
+        """Octant index 0-7 from the 3-bit address."""
+        return (self.cell_x << 2) | (self.cell_y << 1) | self.cell_z
 
     @property
     def physical_x(self) -> float:
@@ -454,6 +498,7 @@ class LeechAddress:
     def to_dict(self) -> Dict:
         return {
             'cell': (self.cell_x, self.cell_y, self.cell_z),
+            'octant': self.octant,
             'physical': (
                 round(self.physical_x, 4),
                 round(self.physical_y, 4),
@@ -463,7 +508,7 @@ class LeechAddress:
 
     @staticmethod
     def from_vector(vector: List[int], cell_size: float = 1.0) -> 'LeechAddress':
-        """Derive a Leech Lattice address from a 24-bit vector."""
+        """Derive a Leech Lattice topological address from a 24-bit vector."""
         folded = BinaryLinearAlgebra.fold24_to3(vector)
         return LeechAddress(
             cell_x=folded[0],
@@ -473,10 +518,13 @@ class LeechAddress:
         )
 
     def hamming_distance_to(self, other: 'LeechAddress') -> int:
-        """Manhattan distance between two lattice cells."""
-        return abs(self.cell_x - other.cell_x) + \
-               abs(self.cell_y - other.cell_y) + \
-               abs(self.cell_z - other.cell_z)
+        """
+        Hamming distance between two 3-bit Leech addresses (0, 1, 2, or 3).
+        v6.3.1: Changed from Manhattan to Hamming since cells are now bits.
+        """
+        return (self.cell_x ^ other.cell_x) + \
+               (self.cell_y ^ other.cell_y) + \
+               (self.cell_z ^ other.cell_z)
 
 
 class LeechAddressingEngine:
@@ -677,7 +725,7 @@ class UBPMechanicsV4:
             'nrci': round(nrci, 6),
             'symmetry_tax': round(tax, 6),
             'health_status': (
-                'COHERENT' if nrci >= 0.9 else
+                'COHERENT' if nrci >= NRCI_COHERENT_THRESHOLD else
                 'STABLE' if nrci >= NRCI_AVG_TARGET else
                 'STRESSED' if nrci >= NRCI_NOISE_FLOOR else
                 'CRITICAL'

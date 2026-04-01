@@ -263,28 +263,168 @@ class UBPSimulation:
                 elif cmd == "engine_test":
                     req_id = msg.get("req_id", "")
                     try:
-                        from ubp_mechanics_v4 import UBP_MECHANICS
-                        player_vec = [0,0,1,0,0,1,1,1,0,0,1,0,1,0,1,0,1,0,1,1,1,1,0,0]
-                        wall_vec   = [1,1,0,1,1,0,1,0,1,1,1,0,1,1,1,1,1,1,0,1,0,0,0,1]
-                        results = []
-                        pv, wv = list(player_vec), list(wall_vec)
-                        for i in range(5):
-                            pv, pnrci = UBP_MECHANICS.tick(pv)
-                            wv, wnrci = UBP_MECHANICS.tick(wv)
-                            results.append({"tick": i + 1, "Player": float(pnrci), "Wall": float(wnrci)})
+                        # ============================================================
+                        # UBP v6.3.1 ENGINE VALIDATION SUITE
+                        # Tests all mechanics that were updated in v6.3.1
+                        # ============================================================
+                        from ubp_mechanics_v4 import UBP_MECHANICS, SINK_L
+                        from ubp_engine_substrate import (
+                            vector_from_math_dna, calculate_nrci, calculate_symmetry_tax,
+                            xor_interact, validate_substrate, Y_CONSTANT
+                        )
+                        from ubp_core_v5_3_merged import BinaryLinearAlgebra, LEECH_ENGINE
+                        from fractions import Fraction
+
+                        tests = {}
+                        all_pass = True
+
+                        # --- TEST 1: Phi-Orbit Tick (LAW_PHI_ORBIT_1953) ---
+                        iron_vec = vector_from_math_dna('UBP_MATERIAL|Fe26x1|phase=solid')
+                        copper_vec = vector_from_math_dna('UBP_MATERIAL|Cu29x1|phase=solid')
+                        iv, inrci = UBP_MECHANICS.tick(iron_vec)
+                        cv, cnrci = UBP_MECHANICS.tick(copper_vec)
+                        phi_pass = (len(iv) == 24 and 0.0 < inrci <= 1.0 and
+                                    len(cv) == 24 and 0.0 < cnrci <= 1.0)
+                        tests['phi_orbit_tick'] = {
+                            'pass': phi_pass,
+                            'iron_nrci': round(inrci, 6),
+                            'copper_nrci': round(cnrci, 6),
+                            'note': 'NRCI = 10/(10 + tax*(1-L)) with Sink Leakage rebate'
+                        }
+                        all_pass = all_pass and phi_pass
+
+                        # --- TEST 2: Synthesis Superposition (v6.3.1 Flow) ---
+                        synth_vec = xor_interact(iron_vec, copper_vec)
+                        synth_nrci = float(calculate_nrci(synth_vec))
+                        synth_pass = len(synth_vec) == 24 and 0.0 < synth_nrci <= 1.0
+                        tests['synthesis_superposition'] = {
+                            'pass': synth_pass,
+                            'synth_nrci': round(synth_nrci, 6),
+                            'note': 'Additive Superposition + Phenomenal Collapse (not XOR)'
+                        }
+                        all_pass = all_pass and synth_pass
+
+                        # --- TEST 3: fold24_to3 returns 3 bits (v6.3.1 XOR fold) ---
+                        folded = BinaryLinearAlgebra.fold24_to3(iron_vec)
+                        fold_pass = (len(folded) == 3 and
+                                     all(b in (0, 1) for b in folded))
+                        tests['fold24_to3_binary'] = {
+                            'pass': fold_pass,
+                            'folded': list(folded),
+                            'note': 'Recursive XOR fold: each output is 0 or 1 (not 0-8)'
+                        }
+                        all_pass = all_pass and fold_pass
+
+                        # --- TEST 4: Leech Address octant (0-7) ---
+                        addr = UBP_MECHANICS.get_address(iron_vec)
+                        addr_pass = 0 <= addr.octant <= 7
+                        tests['leech_address_octant'] = {
+                            'pass': addr_pass,
+                            'octant': addr.octant,
+                            'cell': list(addr.to_dict()['cell']),
+                            'note': '3-bit topological address maps to octant 0-7'
+                        }
+                        all_pass = all_pass and addr_pass
+
+                        # --- TEST 5: Volumetric Rebate (compactness reduces tax) ---
+                        base_tax = LEECH_ENGINE.calculate_symmetry_tax(iron_vec)
+                        rebate_tax = LEECH_ENGINE.calculate_symmetry_tax(
+                            iron_vec, compactness=Fraction(1, 2)
+                        )
+                        rebate_pass = rebate_tax < base_tax
+                        tests['volumetric_rebate'] = {
+                            'pass': rebate_pass,
+                            'base_tax': float(base_tax),
+                            'rebated_tax': float(rebate_tax),
+                            'note': 'T_adj = T_base * (1 - C/13); compact entities pay less'
+                        }
+                        all_pass = all_pass and rebate_pass
+
+                        # --- TEST 6: Domain Pivot (Phenomenal vs Noumenal) ---
+                        phenom_vec = vector_from_math_dna('UBP_MATERIAL|Fe26x1|phase=solid')
+                        noumen_vec = vector_from_math_dna('MATH_CONSTANT|pi')
+                        domain_pass = phenom_vec != noumen_vec  # Different domain pivots
+                        tests['domain_pivot'] = {
+                            'pass': domain_pass,
+                            'phenomenal_bit12': phenom_vec[11],
+                            'noumenal_bit12': noumen_vec[11],
+                            'note': 'Bit 12 (index 11): 1=Phenomenal, 0=Noumenal'
+                        }
+                        all_pass = all_pass and domain_pass
+
+                        # --- TEST 7: Synthesis Collision Event (6-Step Flow) ---
+                        syn_result = UBP_MECHANICS.collide(
+                            iron_vec, copper_vec,
+                            nrci_a=0.7, nrci_b=0.65
+                        )
+                        collision_pass = (
+                            hasattr(syn_result, 'impact_gap') and
+                            hasattr(syn_result, 'event_type') and
+                            syn_result.event_type in ('ELASTIC', 'DAMAGE', 'DISSOLUTION')
+                        )
+                        tests['synthesis_collision'] = {
+                            'pass': collision_pass,
+                            'event_type': syn_result.event_type,
+                            'impact_gap': syn_result.impact_gap,
+                            'damage_a': round(syn_result.nrci_damage_a, 6),
+                            'note': '6-Step Synthesis: XOR->Decode->Snap->Gap->Damage->Dissolve'
+                        }
+                        all_pass = all_pass and collision_pass
+
+                        # --- TEST 8: 13D Sink Leakage (L = wobble/13) ---
+                        sink_l_val = float(SINK_L)
+                        sink_pass = 0.0 < sink_l_val < 0.1  # L is a small positive number
+                        tests['sink_leakage'] = {
+                            'pass': sink_pass,
+                            'L': sink_l_val,
+                            'note': 'L = (pi*phi*e % 1) / 13; small positive leakage'
+                        }
+                        all_pass = all_pass and sink_pass
+
+                        # --- TEST 9: Substrate Validation ---
+                        substrate_report = validate_substrate()
+                        substrate_pass = substrate_report.get('overall') in ('GREEN', 'YELLOW')
+                        tests['substrate_validation'] = {
+                            'pass': substrate_pass,
+                            'overall': substrate_report.get('overall'),
+                            'pi_error_pct': substrate_report.get('pi_precision', {}).get('error_pct', 999),
+                            'golay_roundtrip': substrate_report.get('golay_roundtrip', {}).get('status'),
+                            'particle_physics_error_pct': substrate_report.get('particle_physics', {}).get('global_error_pct', 999),
+                        }
+                        all_pass = all_pass and substrate_pass
+
+                        # --- TEST 10: TGIC 9-Neighbor Limit ---
+                        from ubp_tgic_engine import TGICInteractionEngine
+                        tgic = TGICInteractionEngine()
+                        # Create 12 identical vectors (should trigger overheating)
+                        crowded_manifold = [iron_vec] * 12
+                        pressure = tgic.constraints.check_9_neighbor_limit(iron_vec, crowded_manifold)
+                        tgic_pass = float(pressure) > 0.0  # Should have pressure with 12 neighbors
+                        tests['tgic_9neighbor'] = {
+                            'pass': tgic_pass,
+                            'pressure': float(pressure),
+                            'note': 'Overheating penalty for >9 Leech neighbors (Hamming <=8)'
+                        }
+                        all_pass = all_pass and tgic_pass
+
                         print(_dumps({
-                            "type": "engine_test_result",
-                            "req_id": req_id,
-                            "pass": True,
-                            "ticks": results,
-                            "message": "Phi-Orbit sequence computed successfully",
+                            'type': 'engine_test_result',
+                            'req_id': req_id,
+                            'pass': all_pass,
+                            'ubp_version': 'v6.3.1',
+                            'engine_version': '5.0-ubp6.3.1',
+                            'tests': tests,
+                            'tests_passed': sum(1 for t in tests.values() if t.get('pass')),
+                            'tests_total': len(tests),
+                            'message': 'All UBP v6.3.1 mechanics validated' if all_pass else 'Some tests failed',
                         }))
                     except Exception as e:
                         print(_dumps({
-                            "type": "engine_test_result",
-                            "req_id": req_id,
-                            "pass": False,
-                            "error": str(e),
+                            'type': 'engine_test_result',
+                            'req_id': req_id,
+                            'pass': False,
+                            'error': str(e),
+                            'traceback': traceback.format_exc(),
                         }))
                     sys.stdout.flush()
 

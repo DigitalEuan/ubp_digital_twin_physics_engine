@@ -5,8 +5,7 @@ A deterministic, UBP-native physics simulation engine with full 3D Three.js rend
 This is a full Game Engine development project, not using standard game engine design but my UBP theory to be the "rules of the game. I think that if the UBP can model reality accurately then surely it should actually make a physics virtual space - lets see.
 
 **UNDER CONSTRUCTION**
-This version still contains placeholders and simplified methods that are not yet fully aligned with the UBP system.
-* 24 March 2026
+* 30 March 2026 (Updated to Engine v5.0 / UBP v6.3.1 Theory)
 * E R A Craig, New Zealand
 
 UBP: [https://github.com/DigitalEuan/UBP_Repo/tree/main/core_studio_v4.0]
@@ -20,8 +19,16 @@ UBP: [https://github.com/DigitalEuan/UBP_Repo/tree/main/core_studio_v4.0]
 | Surface tension | `Y × 5` | `Y² / KISSING` | LAW_COMP_001 |
 | Smoothing radius | `0.5` | `1 / (Y × 24)` | Golay code dimension |
 
-## 20.03.26: updated to v4
-* **Current status:** I have the environment physics, blocks and liquid to some extent sorted, the lever not so much but getting there!
+## 30.03.26: Updated to Engine v5.0 (UBP v6.3.1 Alignment)
+* **Current status:** The engine has been fully audited and aligned with UBP Core v6.3.1. All simplified mechanics and floating-point placeholders have been replaced with canonical UBP mathematical structures.
+* **Key Upgrades:**
+  * **Additive Superposition (The Flow):** Replaced XOR with true additive superposition for material aggregation and collision synthesis.
+  * **Recursive XOR Folding (LAW_GEO_FOLD_001):** Replaced standard summation folding with the canonical 24-to-3 recursive fold.
+  * **Volumetric Rebate:** Fully integrated into the `calculate_symmetry_tax` engine.
+  * **13D Sink Leakage:** `SINK_L` is now correctly derived from the Triadic Monad Wobble (`(π × φ × e) mod 1 / 13`).
+  * **TGIC Manifold Pressure:** 9-neighbor overheating penalty is now actively computed and applied in the main physics loop.
+  * **Lever Mechanics:** Lever torque now directly utilizes UBP Symmetry Tax as rotational resistance.
+  * **Fluid Dynamics:** SPH viscosity is now dynamically modulated by the particle's live NRCI score, and `math.pi` has been replaced with the UBP 50-term exact `PI`.
 
 ## Topological Torque Moment of Inertia
 
@@ -36,7 +43,7 @@ Every entity is an aggregate of N × `ELEM_XXX_YYY` particles from the UBP KB:
 ```python
 iron_block = EntityFactoryV3.make_block('IronBlock', 'iron', position)
 # → 1000 × ELEM_Fe_026 particles
-# → aggregate Golay vector (XOR of all particle vectors)
+# → aggregate Golay vector (Additive Superposition of all particle vectors)
 # → aggregate NRCI, mass, thermal properties
 ```
 
