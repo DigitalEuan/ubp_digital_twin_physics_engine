@@ -378,10 +378,18 @@ class FluidBodyV3:
                 if entity.material.phase_stp == 1:  # Skip gas entities
                     continue
                 bb = entity.aabb()
-                # Check if particle is inside the AABB
-                if (bb.min_x <= p.x <= float(bb.max_x) and
-                    bb.min_y <= p.y <= float(bb.max_y) and
-                    bb.min_z <= p.z <= float(bb.max_z)):
+                # Check if particle is inside the AABB (account for radius)
+                # We use a collision radius of h/2 to prevent penetration
+                r_coll = self.h / 2.0
+                
+                # Convert AABB bounds to float to avoid Decimal vs float TypeError
+                min_x, max_x = float(bb.min_x), float(bb.max_x)
+                min_y, max_y = float(bb.min_y), float(bb.max_y)
+                min_z, max_z = float(bb.min_z), float(bb.max_z)
+
+                if (min_x - r_coll <= p.x <= max_x + r_coll and
+                    min_y - r_coll <= p.y <= max_y + r_coll and
+                    min_z - r_coll <= p.z <= max_z + r_coll):
 
                     # v6.3.1: Synthesis Superposition for restitution
                     # Additive superposition of fluid and solid vectors
@@ -393,37 +401,37 @@ class FluidBodyV3:
 
                     # Find closest face and push out
                     # Distances to each face
-                    d_bottom = p.y - float(bb.min_y)
-                    d_top = float(bb.max_y) - p.y
-                    d_left = p.x - float(bb.min_x)
-                    d_right = float(bb.max_x) - p.x
-                    d_front = p.z - float(bb.min_z)
-                    d_back = float(bb.max_z) - p.z
+                    d_bottom = p.y - min_y
+                    d_top = max_y - p.y
+                    d_left = p.x - min_x
+                    d_right = max_x - p.x
+                    d_front = p.z - min_z
+                    d_back = max_z - p.z
 
                     min_d = min(d_bottom, d_top, d_left, d_right, d_front, d_back)
 
                     if min_d == d_bottom:
-                        p.y = float(bb.min_y) - 0.01
+                        p.y = min_y - r_coll - 0.01
                         if p.vy > 0:
                             p.vy = -abs(p.vy) * restitution
                     elif min_d == d_top:
-                        p.y = float(bb.max_y) + 0.01
+                        p.y = max_y + r_coll + 0.01
                         if p.vy < 0:
                             p.vy = abs(p.vy) * restitution
                     elif min_d == d_left:
-                        p.x = float(bb.min_x) - 0.01
+                        p.x = min_x - r_coll - 0.01
                         if p.vx > 0:
                             p.vx = -abs(p.vx) * restitution
                     elif min_d == d_right:
-                        p.x = float(bb.max_x) + 0.01
+                        p.x = max_x + r_coll + 0.01
                         if p.vx < 0:
                             p.vx = abs(p.vx) * restitution
                     elif min_d == d_front:
-                        p.z = float(bb.min_z) - 0.01
+                        p.z = min_z - r_coll - 0.01
                         if p.vz > 0:
                             p.vz = -abs(p.vz) * restitution
                     else:
-                        p.z = float(bb.max_z) + 0.01
+                        p.z = max_z + r_coll + 0.01
                         if p.vz < 0:
                             p.vz = abs(p.vz) * restitution
 
@@ -437,27 +445,28 @@ class FluidBodyV3:
         """
         x_min, x_max, y_min, y_max, z_min, z_max = bounds
         restitution = self.particle_nrci
+        r_coll = self.h / 2.0
 
         for p in self.particles:
-            if p.x < x_min:
-                p.x = x_min + 0.01
+            if p.x < x_min + r_coll:
+                p.x = x_min + r_coll + 0.01
                 p.vx = abs(p.vx) * restitution
-            elif p.x > x_max:
-                p.x = x_max - 0.01
+            elif p.x > x_max - r_coll:
+                p.x = x_max - r_coll - 0.01
                 p.vx = -abs(p.vx) * restitution
 
-            if p.y < y_min:
-                p.y = y_min + 0.01
+            if p.y < y_min + r_coll:
+                p.y = y_min + r_coll + 0.01
                 p.vy = abs(p.vy) * restitution
-            elif p.y > y_max:
-                p.y = y_max - 0.01
+            elif p.y > y_max - r_coll:
+                p.y = y_max - r_coll - 0.01
                 p.vy = -abs(p.vy) * restitution
 
-            if p.z < z_min:
-                p.z = z_min + 0.01
+            if p.z < z_min + r_coll:
+                p.z = z_min + r_coll + 0.01
                 p.vz = abs(p.vz) * restitution
-            elif p.z > z_max:
-                p.z = z_max - 0.01
+            elif p.z > z_max - r_coll:
+                p.z = z_max - r_coll - 0.01
                 p.vz = -abs(p.vz) * restitution
 
     def get_state(self) -> List[Dict[str, Any]]:

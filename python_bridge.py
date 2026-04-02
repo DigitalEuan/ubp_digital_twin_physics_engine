@@ -210,7 +210,7 @@ class UBPSimulation:
                     fx = float(msg.get("fx", 0))
                     fy = float(msg.get("fy", 0))
                     at_x = float(msg.get("at_x", 0))
-                    self.space.rigid_body.push_lever(lever_id, fx, fy, at_x)
+                    self.space.push_lever(lever_id, fx, fy, at_x)
                 elif cmd == "spawn_wall":
                     x = float(msg.get("x", 0))
                     y = float(msg.get("y", 1))

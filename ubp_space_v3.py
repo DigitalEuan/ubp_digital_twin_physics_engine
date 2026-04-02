@@ -291,6 +291,10 @@ class UBPSpaceV3:
         """Directly set a lever's angle in degrees."""
         return self.rigid_body.set_lever_angle(lever_id, angle_deg)
 
+    def push_lever(self, lever_id: int, fx: float, fy: float, at_x: float) -> bool:
+        """Apply a force at a specific X-position on the lever."""
+        return self.rigid_body.push_lever(lever_id, fx, fy, at_x)
+
     def set_ambient_temperature(self, temperature_K: float) -> None:
         self.ambient = AmbientEnvironment(temperature_K=temperature_K)
         self.physics.update_ambient(self.ambient)
@@ -337,11 +341,13 @@ class UBPSpaceV3:
         # This implements the UBP 3-6-9 law at the manifold level.
         if _TGIC_AVAILABLE and _TGIC_ENGINE is not None:
             all_vectors = [e.golay_vector for e in self._entity_list]
-            for entity in self._entity_list:
+            for i, entity in enumerate(self._entity_list):
                 if entity.is_static:
                     continue
-                # Exclude self from manifold for neighbor count
-                other_vectors = [v for v in all_vectors if v != entity.golay_vector]
+                # Exclude ONLY the current entity from the manifold count
+                # (Same-material entities MUST count as neighbors for crowding)
+                other_vectors = all_vectors[:i] + all_vectors[i+1:]
+                
                 # Overheating pressure = max(0, neighbors - 9) * Y
                 pressure = _TGIC_ENGINE.constraints.check_9_neighbor_limit(
                     entity.golay_vector, other_vectors

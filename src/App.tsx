@@ -1086,26 +1086,49 @@ export default function App() {
       <div className="w-80 bg-slate-800 border-l border-slate-700 flex flex-col">
 
         {/* Play / Pause / Reset */}
-        <div className="p-4 border-b border-slate-700">
+        <div className="p-4 border-b border-slate-700 space-y-3">
+          <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono uppercase tracking-wider">
+            <span>Simulation Engine</span>
+            <span className={isRunning ? "text-emerald-400 animate-pulse" : "text-slate-600"}>
+              {isRunning ? "● Running" : "○ Paused"}
+            </span>
+          </div>
           <div className="flex gap-2">
             <button
               onClick={() => sendCommand(isRunning ? 'pause' : 'play')}
-              className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg font-medium text-sm transition-colors ${
+              className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg font-medium text-sm transition-all ${
                 isRunning
-                  ? 'bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 border border-amber-500/30'
-                  : 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border border-emerald-500/30'
+                  ? 'bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 border border-amber-500/40 shadow-[0_0_15px_rgba(245,158,11,0.1)]'
+                  : 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border border-emerald-500/40 shadow-[0_0_15px_rgba(16,185,129,0.1)]'
               }`}
             >
               {isRunning ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
               {isRunning ? 'Pause' : 'Play'}
             </button>
+            {!isRunning && (
+              <button
+                onClick={() => sendCommand('step')}
+                className="p-2.5 bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 rounded-lg transition-colors border border-indigo-500/30"
+                title="Single Step"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            )}
             <button
               onClick={() => { sendCommand('reset'); setSelectedId(null); setGridPlacementMode(false); setDemoStatus(null); }}
-              className="p-2.5 bg-slate-700 text-slate-300 hover:bg-slate-600 rounded-lg transition-colors border border-slate-600"
+              className="p-2.5 bg-slate-700/50 text-slate-400 hover:bg-slate-600 hover:text-slate-200 rounded-lg transition-colors border border-slate-600"
               title="Reset Simulation"
             >
               <RotateCcw className="w-4 h-4" />
             </button>
+          </div>
+          <div className="flex justify-between items-center px-1">
+            <div className="text-[10px] text-slate-500 font-mono">
+              TICK: <span className="text-slate-300">{state?.tick ?? 0}</span>
+            </div>
+            <div className="text-[10px] text-slate-500 font-mono">
+              TIME: <span className="text-slate-300">{(state?.time_s ?? 0).toFixed(2)}s</span>
+            </div>
           </div>
         </div>
 

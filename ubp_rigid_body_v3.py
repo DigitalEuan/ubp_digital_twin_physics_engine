@@ -264,6 +264,45 @@ class UBPRigidBodyEngineV3:
         self.constraints.append(constraint)
         return constraint
 
+    def push_lever(self, lever_id: int, fx: float, fy: float, at_x: float) -> bool:
+        """Apply a force at a specific X-position on the lever."""
+        for constraint in self.constraints:
+            if constraint.lever.entity_id == lever_id:
+                # Torque = r_x * F_y - r_y * F_x
+                # r_x = at_x - pivot_x
+                # r_y = at_y - pivot_y (at_y is pivot_y because lever rotates around Z)
+                pivot_x = constraint.pivot_world.x
+                
+                r_x = to_decimal(str(at_x)) - pivot_x
+                r_y = D0 # Lever rotates around Z, so pivot_y is constant
+                
+                F_x = to_decimal(str(fx))
+                F_y = to_decimal(str(fy))
+                
+                torque = r_x * F_y - r_y * F_x
+                constraint.apply_torque(torque)
+                return True
+        return False
+
+    def set_lever_angle(self, lever_id: int, angle_deg: float) -> bool:
+        """Directly set a lever's angle in degrees."""
+        for constraint in self.constraints:
+            if constraint.lever.entity_id == lever_id:
+                # Convert degrees to radians
+                angle_rad = D(str(angle_deg)) * D(str(_PI_FLOAT)) / D('180')
+                constraint.angle = angle_rad
+                constraint.angular_velocity = D0
+                # Enforce limits immediately
+                if constraint.angle > constraint.max_angle:
+                    constraint.angle = constraint.max_angle
+                elif constraint.angle < constraint.min_angle:
+                    constraint.angle = constraint.min_angle
+                
+                # Update lever arm orientation and position
+                constraint.step() 
+                return True
+        return False
+
     def compute_lever_torques(
         self,
         constraint: PivotConstraintV3,

@@ -250,6 +250,19 @@ class UBPPhysicsEngineV3:
         # Apply NRCI damage from the Golay gap to both entities
         if _UBP_MECHANICS_AVAILABLE and UBP_MECHANICS is not None:
             try:
+                # Calculate impact velocity magnitude for damage scaling
+                # (Gentle touches shouldn't cause catastrophic topological failure)
+                if axis == 'y':
+                    impact_v = abs(entity_a.velocity.vy - entity_b.velocity.vy)
+                elif axis == 'x':
+                    impact_v = abs(entity_a.velocity.vx - entity_b.velocity.vx)
+                else:
+                    impact_v = abs(entity_a.velocity.vz - entity_b.velocity.vz)
+                
+                # Damage scale: 1.0 at ~0.5 cells/tick (approx 30m/s impact)
+                # A 1m drop (~0.07 cells/tick) will result in ~14% damage.
+                damage_scale = min(D1, to_decimal(impact_v) * D('2.0'))
+                
                 nrci_a = float(entity_a.nrci)
                 nrci_b = float(entity_b.nrci)
                 syn_result = UBP_MECHANICS.collide(
@@ -257,9 +270,9 @@ class UBPPhysicsEngineV3:
                     nrci_a, nrci_b
                 )
                 if syn_result.nrci_damage_a > 0 and not entity_a.is_static:
-                    entity_a.apply_synthesis_damage(syn_result.nrci_damage_a)
+                    entity_a.apply_synthesis_damage(syn_result.nrci_damage_a * float(damage_scale))
                 if syn_result.nrci_damage_b > 0 and not entity_b.is_static:
-                    entity_b.apply_synthesis_damage(syn_result.nrci_damage_b)
+                    entity_b.apply_synthesis_damage(syn_result.nrci_damage_b * float(damage_scale))
                 # Store last synthesis result on entity for reporting
                 entity_a._last_synthesis = syn_result
                 entity_b._last_synthesis = syn_result
