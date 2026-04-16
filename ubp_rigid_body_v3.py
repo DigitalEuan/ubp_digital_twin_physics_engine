@@ -1,10 +1,17 @@
 """
 ================================================================================
-UBP RIGID BODY SYSTEM v3.0 — Topological Torque
+UBP RIGID BODY SYSTEM v3.1 — Topological Torque + Pantograph Tax
 ================================================================================
 Rigid body mechanics with moment of inertia derived from LAW_TOPOLOGICAL_TORQUE_001.
 
-Key upgrades from V2:
+Key upgrades in v3.1 (UBP Core v6.2 + Sovereign ALU v9.2, 16 April 2026):
+  6. Pantograph Tax (LAW_PANTOGRAPH_SCALING_001): large bodies (volume > 8 cells³)
+     pay an additional rotational resistance proportional to their volume excess.
+     This models the UBP principle that large structures span more Leech Lattice
+     cells and require more topological work to rotate.
+     Pantograph_Tax = Y * (volume / 8)^(1/3) for volume > 8
+
+Key upgrades from V2 (retained from V3.0):
   1. Topological Torque moment of inertia (replaces classical 1/12 box formula)
   2. Volumetric Rebate applied to inertia (LAW_VOLUMETRIC_REBATE_001)
   3. Material-specific angular damping (Hamming Damping)
@@ -18,6 +25,8 @@ LAW_TOPOLOGICAL_TORQUE_001: Power = Tax(Jagged) - Tax(Snapped)
 
 LAW_VOLUMETRIC_REBATE_001: Rebate = 1 - (Compactness / 13)
   Compact shapes (spheres, cubes) have lower rotational inertia than elongated ones.
+
+LAW_PANTOGRAPH_SCALING_001: Large structures pay a scaling tax on rotation.
 ================================================================================
 """
 
@@ -36,6 +45,7 @@ from ubp_entity_v3 import (
 )
 from ubp_engine_substrate import (
     Y_CONSTANT, SINK_L, PI, calculate_nrci, hamming_distance,
+    calculate_pantograph_tax, calculate_symmetry_tax,
 )
 # UBP 50-term π for angle conversions (replaces math.pi)
 _PI_FLOAT: float = float(PI)
@@ -360,7 +370,7 @@ class UBPRigidBodyEngineV3:
             # Downward force at positive r creates negative (clockwise) torque
             net_torque -= F_eff * r
 
-        # Topological Resistance: reduce torque by the Topological Cost * Y
+         # Topological Resistance: reduce torque by the Topological Cost * Y
         # This is the geometric rent the lever pays to change orientation
         topo_cost = constraint.topological_cost()
         if net_torque != D0:
@@ -369,7 +379,20 @@ class UBPRigidBodyEngineV3:
             # Resistance cannot exceed the torque itself (no reversal)
             resistance = min(abs(net_torque), resistance)
             net_torque -= sign * resistance
-
+        # Pantograph Tax (LAW_PANTOGRAPH_THERMODYNAMICS_001): macroscopic symmetry
+        # tax for large lever bodies. Uses the affine kinematic projection:
+        #   k = 1 + WOBBLE, V_macro = k³ × V_noum, T_adj = T_base × (1 - C_macro/13)
+        # The pantograph NRCI is lower than the base NRCI for large/jagged bodies,
+        # meaning they resist rotation more in the macroscopic domain.
+        if net_torque != D0:
+            p_tax_adj, p_nrci = calculate_pantograph_tax(constraint.lever.golay_vector)
+            # Pantograph resistance = difference between base tax and pantograph tax
+            base_tax = to_decimal(calculate_symmetry_tax(constraint.lever.golay_vector))
+            p_resistance = abs(to_decimal(p_tax_adj) - base_tax) * _Y
+            if p_resistance > D0:
+                sign = D('1') if net_torque > D0 else D('-1')
+                p_resistance = min(abs(net_torque), p_resistance)
+                net_torque -= sign * p_resistance
         # Angular acceleration: α = τ / I
         I = constraint.moment_of_inertia()
         alpha = net_torque / I if I > D0 else D0

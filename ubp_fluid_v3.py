@@ -312,8 +312,18 @@ class FluidBodyV3:
                 if r < 1e-10 or r >= self.h:
                     continue
 
-                # ---- Pressure force ----
-                p_avg = (pi.pressure + pj.pressure) / 2.0
+                # ---- Pressure force (with Poynting Z orthogonality) ----
+                # [LAW_ANALOG_ORTHOGONALITY_001] Two interacting fluid particles
+                # model E-field and M-field at 90 deg phase offset.
+                # Poynting Z-component: S = E x M x |sin(phase_diff)|
+                # phase_diff = pi/2 * |NRCI_i - NRCI_j| (0=same, pi/2=orthogonal)
+                # At max orthogonality (phase_diff=pi/2), S = NRCI_i * NRCI_j.
+                # This Poynting flux modulates pressure: coherent fluid resists
+                # compression more strongly when fields are orthogonal.
+                phase_diff = _PI_FLOAT / 2.0 * abs(pi.nrci - pj.nrci)
+                orthogonality = abs(math.sin(phase_diff))
+                poynting_z = pi.nrci * pj.nrci * orthogonality
+                p_avg = (pi.pressure + pj.pressure) / 2.0 * (1.0 + poynting_z)
                 rho_j = max(pj.density, 0.001)
                 gx, gy, gz = _spiky_gradient(r, self.h, dx, dy, dz)
                 ax_list[i] -= p_avg / rho_j * gx

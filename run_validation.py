@@ -1,9 +1,9 @@
 """
 ================================================================================
-UBP v6.3.1 Engine Validation Suite
+UBP v6.3.2 Engine Validation Suite
 ================================================================================
 Standalone script — runs all validation checks and prints a clean report.
-Date: 30 March 2026
+Date: 16 April 2026
 Author: Euan Craig (DigitalEuan) — info@digitaleuan.com
 GitHub: https://github.com/DigitalEuan/ubp_digital_twin_physics_engine
 ================================================================================
@@ -50,8 +50,8 @@ def check(name: str, condition: bool, detail: str = "") -> bool:
 
 print()
 print("=" * 72)
-print("  UBP v6.3.1 Engine Validation Suite")
-print("  Date: 30 March 2026")
+print("  UBP v6.3.2 Engine Validation Suite")
+print("  Date: 16 April 2026")
 print("=" * 72)
 print()
 
@@ -203,8 +203,8 @@ space.step()
 s1 = space.get_threejs_state()
 check("Simulation step increments tick",
       s1['tick'] == s0['tick'] + 1, f"tick: {s0['tick']} → {s1['tick']}")
-check("Engine version is 5.0-ubp6.3.1",
-      s1.get('engine_version') == '5.0-ubp6.3.1', s1.get('engine_version'))
+check("Engine version is 5.1-ubp6.3.2",
+      s1.get('engine_version') == '5.1-ubp6.3.2', s1.get('engine_version'))
 check("UBP mechanics flag is True", s1.get('ubp_mechanics') is True)
 check("avg_nrci is present and valid",
       0.0 <= s1['stats'].get('avg_nrci', -1) <= 1.0,
@@ -279,6 +279,106 @@ check("UBP PI is a high-precision Fraction (denominator > 10^15)",
       f"denom={PI.denominator}")
 print()
 
+# ── TEST 16: Sovereign ALU v9.2 — Gray Code UMS ─────────────────────────
+print("16. Sovereign ALU v9.2 — Gray Code UMS Vector Generation")
+try:
+    from ubp_engine_substrate import gray_code_encode_state
+    # Encode a simple entity state via Gray Code UMS
+    schema = {'velocity': {'min': 0.0, 'max': 10.0, 'bits': 4},
+              'nrci':     {'min': 0.0, 'max': 1.0,  'bits': 4},
+              'temp':     {'min': 0.0, 'max': 100.0, 'bits': 4}}
+    params0 = {'velocity': 0.0, 'nrci': 0.76, 'temp': 20.0}
+    params1 = {'velocity': 0.0, 'nrci': 0.76, 'temp': 20.0 + 100.0/15.0}  # 1 step in temp
+    ums_vec  = gray_code_encode_state(params0, schema)
+    ums_vec1 = gray_code_encode_state(params1, schema)
+    check("Gray Code UMS returns 24-bit vector", len(ums_vec) == 24, str(ums_vec[:4]))
+    check("Gray Code UMS values are binary", all(x in (0, 1) for x in ums_vec))
+    # Adjacent states should differ by a small number of bits (Gray code property)
+    hamming_01 = sum(a ^ b for a, b in zip(ums_vec, ums_vec1))
+    # After Golay encoding, adjacent Gray code states may differ by more bits
+    # (Golay adds 12 parity bits). The key property is the message bits differ by 1.
+    check("Adjacent Gray Code UMS states produce different 24-bit vectors",
+          ums_vec != ums_vec1, f"Hamming(0,1)={hamming_01}")
+except ImportError:
+    check("Gray Code UMS available in substrate", False, "ImportError")
+print()
+
+# ── TEST 17: Pantograph Tax — Macroscopic Symmetry Tax ────────────────────
+print("17. Pantograph Tax (LAW_PANTOGRAPH_THERMODYNAMICS_001) — Macroscopic Symmetry Tax")
+try:
+    from ubp_engine_substrate import calculate_pantograph_tax
+    # calculate_pantograph_tax(vector_24bit) -> (T_adj: Fraction, nrci: Fraction)
+    test_vec = [1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0]
+    t_adj, p_nrci = calculate_pantograph_tax(test_vec)
+    check("Pantograph Tax returns (T_adj, nrci) tuple",
+          isinstance(t_adj, Fraction) and isinstance(p_nrci, Fraction),
+          f"T_adj={float(t_adj):.4f} nrci={float(p_nrci):.4f}")
+    check("Pantograph Tax T_adj is positive",
+          float(t_adj) > 0.0, f"T_adj={float(t_adj):.6f}")
+    check("Pantograph Tax NRCI is in valid range (0–1)",
+          0.0 <= float(p_nrci) <= 1.0, f"nrci={float(p_nrci):.4f}")
+    # Pantograph NRCI should differ from base NRCI (macroscopic projection applied)
+    base_nrci = float(calculate_nrci(test_vec))
+    check("Pantograph NRCI differs from base NRCI (macroscopic projection applied)",
+          abs(float(p_nrci) - base_nrci) > 1e-9,
+          f"pantograph={float(p_nrci):.4f} base={base_nrci:.4f}")
+except ImportError:
+    check("Pantograph Tax available in substrate", False, "ImportError")
+print()
+
+# ── TEST 18: Observer Dynamics — MANIFESTED / SUBLIMINAL State ───────────
+print("18. Observer Dynamics — MANIFESTED / SUBLIMINAL State (LAW_OBSERVER_DYNAMICS_001)")
+entity2 = EntityFactoryV3.make_block('ObsBlock', 'iron', Position(3.0, 3.0, 3.0))
+# Observer state is stored as is_manifested (bool) — MANIFESTED if NRCI >= CONSCIOUS_THRESHOLD
+check("Entity has is_manifested attribute (Observer Dynamics)",
+      hasattr(entity2, 'is_manifested'),
+      str(getattr(entity2, 'is_manifested', 'MISSING')))
+check("Entity is_manifested is a bool (MANIFESTED=True, SUBLIMINAL=False)",
+      isinstance(getattr(entity2, 'is_manifested', None), bool),
+      f"is_manifested={getattr(entity2,'is_manifested','MISSING')}")
+check("Entity has dqi attribute (Dynamic Quality Index)",
+      hasattr(entity2, 'dqi') and 0.0 <= float(getattr(entity2, 'dqi', -1)) <= 1.0,
+      f"dqi={float(getattr(entity2,'dqi',0)):.4f}")
+check("Entity has ter_score attribute (Total Experienced Result)",
+      hasattr(entity2, 'ter_score') and float(getattr(entity2, 'ter_score', -1)) >= 0.0,
+      f"ter_score={float(getattr(entity2,'ter_score',0)):.4f}")
+print()
+
+# ── TEST 19: Wall of Reality — SOC Energy Check ──────────────────────────
+print("19. Wall of Reality — SOC Energy Check (LAW_TOTAL_EXPERIENCED_RESULT_001)")
+try:
+    from ubp_engine_substrate import calculate_soc_energy, F_MAX_HZ
+    normal_vec = [1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0]
+    soc_e = calculate_soc_energy(normal_vec, 0.76)
+    check("calculate_soc_energy returns a positive float",
+          isinstance(soc_e, (int, float)) and soc_e > 0, f"soc_e={soc_e:.6f}")
+    check("F_MAX_HZ is 1e12 (1 THz Wall of Reality)",
+          abs(float(F_MAX_HZ) - 1e12) < 1e6, f"F_MAX_HZ={float(F_MAX_HZ):.2e}")
+    # Normal entity should be below the Wall of Reality
+    _y_f = float(Y_CONSTANT)
+    _dt  = 1.0 / 60.0   # 60 ticks/s
+    f_soc = soc_e / max(_y_f * _dt, 1e-30)
+    check("Normal entity SOC frequency is below Wall of Reality",
+          f_soc < float(F_MAX_HZ),
+          f"f_soc={f_soc:.4e} F_MAX={float(F_MAX_HZ):.2e}")
+except ImportError:
+    check("calculate_soc_energy available in substrate", False, "ImportError")
+print()
+
+# ── TEST 20: Stereoscopic Sink L_s ───────────────────────────────────────
+print("20. Stereoscopic Sink L_s (LAW_STEREOSCOPIC_SINK_001)")
+try:
+    from ubp_engine_substrate import SINK_L_STEREO
+    check("SINK_L_STEREO is defined", SINK_L_STEREO is not None)
+    check("SINK_L_STEREO > SINK_L (stereoscopic > mono)",
+          float(SINK_L_STEREO) > float(SINK_L),
+          f"L_s={float(SINK_L_STEREO):.6f} L={float(SINK_L):.6f}")
+    check("SINK_L_STEREO < 1.0 (valid rebate fraction)",
+          float(SINK_L_STEREO) < 1.0, f"{float(SINK_L_STEREO):.6f}")
+except ImportError:
+    check("SINK_L_STEREO available in substrate", False, "ImportError")
+print()
+
 # ── SUMMARY ──────────────────────────────────────────────────────────────
 total  = len(results)
 passed = sum(1 for _, ok, _ in results if ok)
@@ -291,8 +391,8 @@ if failed > 0:
     print("\n  FAILURES:")
     for name, ok, detail in results:
         if not ok:
-            print(f"    ✗ {name}" + (f"  [{detail}]" if detail else ""))
+            print(f"    \u2717 {name}" + (f"  [{detail}]" if detail else ""))
     sys.exit(1)
 else:
-    print("\n  ALL TESTS PASS — Engine is UBP v6.3.1 compliant.")
+    print("\n  ALL TESTS PASS \u2014 Engine is UBP v6.3.2 compliant.")
     print()

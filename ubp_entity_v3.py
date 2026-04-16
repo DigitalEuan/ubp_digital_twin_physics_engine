@@ -1,26 +1,36 @@
 """
 ================================================================================
-UBP ENTITY SYSTEM v4.0
+UBP ENTITY SYSTEM v5.1
 ================================================================================
-Every object in the V4 simulation is a UBPEntityV3. Unlike V2's monolithic
-vectors, V3/V4 entities are built from composite materials (UBP KB elements).
+Every object in the V5.1 simulation is a UBPEntityV3. Unlike V2's monolithic
+vectors, V3/V4/V5 entities are built from composite materials (UBP KB elements).
 
-Key upgrades from V3:
-  1. Phi-Orbit Tick integration (LAW_PHI_ORBIT_1953) — vector evolves each tick
+Key upgrades in v5.1 (UBP Core v6.2 + Sovereign ALU v9.2):
+  1. Observer Dynamics (LAW_OBSERVER_DYNAMICS) — MANIFESTED/SUBLIMINAL state
+     based on CONSCIOUS_THRESHOLD (NRCI >= 0.70)
+  2. Gray Code UMS state encoding — velocity/NRCI/temp encoded as 24-bit Golay
+     codeword via Gray code (Hamming-1 adjacent state transitions)
+  3. Design Quality Index (DQI) — weighted harmonic mean of NRCI, utility,
+     and Golay template accuracy (LAW_VTE_QUANTIZATION_001)
+  4. Total Experienced Result (TER) — E = M x f x dt
+     (LAW_TOTAL_EXPERIENCED_RESULT_001)
+  5. SOC Energy — State of Coherence energy with Wall of Reality collapse
+     above 1 THz (LAW_TOTAL_EXPERIENCED_RESULT_001)
+  6. Ontology Layer reporting — 4x6 split of entity vector into Reality,
+     Information, Activation, Potential layers
+
+Key upgrades from V3 (retained from V4):
+  1. Phi-Orbit Tick integration (LAW_PHI_ORBIT_1953)
   2. NRCI live state via NCRIState (LAW_13D_SINK_001)
-  3. Leech Lattice address (LAW_KISSING_EXPANSION_001) in to_threejs_state
+  3. Leech Lattice address (LAW_KISSING_EXPANSION_001)
   4. Metabolic rendering: opacity and tilt derived from live NRCI
   5. Synthesis Collision Event support via ubp_mechanics_v4
   6. Dissolution flag: entities below NRCI threshold flagged for removal
-  7. Hybrid Stereoscopy Sigma (LAW_HYBRID_STEREOSCOPY_002) in mass calc
+  7. Composite material system, Thermal state, Topological Torque MoI
+  8. Volumetric Rebate, Continuous Decimal positions, Three.js serialisation
 
-Key upgrades from V2 (retained from V3):
-  1. Composite material system — entities have a MaterialRecipe
-  2. Thermal state — temperature, heat capacity, heat transfer
-  3. Topological Torque moment of inertia (LAW_TOPOLOGICAL_TORQUE_001)
-  4. Volumetric Rebate applied to inertia (LAW_VOLUMETRIC_REBATE_001)
-  5. Continuous Decimal positions (10^-12 Planck grid)
-  6. Full Three.js serialisation (to_threejs_state)
+Author: E R A Craig, New Zealand
+Date: 16 April 2026
 ================================================================================
 """
 
@@ -56,10 +66,13 @@ def to_decimal(x) -> Decimal:
 # SUBSTRATE CONSTANTS (imported once at module load)
 # ---------------------------------------------------------------------------
 from ubp_engine_substrate import (
-    Y_CONSTANT, Y_INV, PI, SINK_L, G_EARTH_MS2,
+    Y_CONSTANT, Y_INV, PI, SINK_L, SINK_L_STEREO, G_EARTH_MS2,
+    CONSCIOUS_THRESHOLD, F_MAX_HZ, NOUMENAL_VOLUME,
     calculate_symmetry_tax, calculate_nrci, hamming_distance,
     vector_from_math_dna, coherence_snap, encode_to_golay,
     _construction_tax_from_dna, GOLAY_BLOCK_LENGTH,
+    conscious_read, calculate_soc_energy, calculate_ter_score,
+    gray_code_encode_state, calculate_dqi, calculate_pantograph_tax,
 )
 from ubp_materials import MaterialRecipe, MaterialRegistry, AmbientEnvironment
 
@@ -381,6 +394,24 @@ class UBPEntityV3:
         # Dissolution flag (LAW_TOPOLOGICAL_BUFFER_001)
         self.is_dissolving: bool = False
 
+        # v5.1: Observer Dynamics state (LAW_OBSERVER_DYNAMICS)
+        # MANIFESTED = NRCI >= 0.70 (Conscious Threshold)
+        # SUBLIMINAL = NRCI < 0.70 (below perception threshold)
+        self.is_manifested: bool = float(self.nrci) >= float(CONSCIOUS_THRESHOLD)
+        self.soc_energy: float = calculate_soc_energy(self.golay_vector, self.nrci)
+        self.ter_score: float = calculate_ter_score(self.golay_vector)
+
+        # v5.1: Gray Code UMS encoded state (velocity/NRCI/temp as 24-bit Golay)
+        self._ums_schema = {
+            'velocity': {'min': 0.0, 'max': float(float(_V_MAX) * 1.5), 'bits': 4},
+            'nrci':     {'min': 0.0, 'max': 1.0, 'bits': 4},
+            'temp':     {'min': 0.0, 'max': 1000.0, 'bits': 4},
+        }
+        self.ums_vector: List[int] = self._compute_ums_vector()
+
+        # v5.1: Design Quality Index
+        self.dqi: float = self._compute_dqi()
+
         # Phi-Orbit tick counter
         self._phi_tick_counter: int = 0
         self._phi_tick_interval: int = 5  # Apply Phi-Orbit every 5 simulation ticks
@@ -460,6 +491,27 @@ class UBPEntityV3:
             self.position.z + d / D('2'),
         )
 
+    def _compute_ums_vector(self) -> List[int]:
+        """Compute the Gray Code UMS encoded state vector."""
+        v_mag = float(self.velocity.magnitude())
+        nrci_f = float(self.nrci)
+        temp_f = float(self.thermal.temperature_ubp) * 24.0 / float(Y_CONSTANT)
+        return gray_code_encode_state(
+            {'velocity': v_mag, 'nrci': nrci_f, 'temp': temp_f},
+            self._ums_schema
+        )
+
+    def _compute_dqi(self) -> float:
+        """Compute the Design Quality Index (DQI) for this entity."""
+        nrci_f = float(self.nrci)
+        v_mag = float(self.velocity.magnitude())
+        v_max = float(_V_MAX)
+        u_score = 1.0 - min(1.0, v_mag / v_max) if v_max > 0 else 1.0
+        # gap_score: 1.0 if Golay vector has valid weight (8, 12, or 16), else 0.0
+        w = sum(self.golay_vector)
+        gap_score = 1.0 if w in (0, 8, 12, 16, 24) else 0.5
+        return calculate_dqi(nrci_f, u_score, gap_score)
+
     def apply_coherence_snap(self) -> None:
         """
         Periodically snap the Golay vector to the nearest valid codeword.
@@ -496,6 +548,12 @@ class UBPEntityV3:
                 # Check dissolution against Topological Buffer threshold
                 if new_nrci < 0.40 and not self.is_static:
                     self.is_dissolving = True
+                # v5.1: Update Observer Dynamics fields each tick
+                self.is_manifested = new_nrci >= float(CONSCIOUS_THRESHOLD)
+                self.soc_energy = calculate_soc_energy(new_vec, self.nrci)
+                self.ter_score = calculate_ter_score(new_vec)
+                self.ums_vector = self._compute_ums_vector()
+                self.dqi = self._compute_dqi()
         else:
             # V3.x fallback: plain coherence snap
             snapped, _ = coherence_snap(self.golay_vector)
@@ -527,6 +585,7 @@ class UBPEntityV3:
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialise entity state to a dictionary."""
+        obs = conscious_read(self.golay_vector, self.nrci)
         return {
             'entity_id': self.entity_id,
             'label': self.label,
@@ -547,6 +606,16 @@ class UBPEntityV3:
             'construction_tax': float(self.construction_tax),
             'golay_vector': self.golay_vector,
             'thermal': self.thermal.to_dict(),
+            # v5.1: Observer Dynamics
+            'observer_status': obs['status'],
+            'is_manifested': obs['is_manifested'],
+            'ontology_layers': {
+                k: v for k, v in obs['ontology_layers'].items()
+            },
+            'soc_energy': round(self.soc_energy, 4),
+            'ter_score': round(self.ter_score, 6),
+            'dqi': self.dqi,
+            'ums_vector': self.ums_vector,
         }
 
     def to_threejs_state(self) -> Dict[str, Any]:
@@ -611,6 +680,12 @@ class UBPEntityV3:
             'golay_vector': self.golay_vector,
             'temperature_K': float(self.thermal.temperature_ubp) * 24.0 / float(_Y),
             'velocity': {'x': float(self.velocity.vx), 'y': float(self.velocity.vy), 'z': float(self.velocity.vz)},
+            # v5.1: Observer Dynamics
+            'is_manifested': self.is_manifested,
+            'observer_status': 'MANIFESTED' if self.is_manifested else 'SUBLIMINAL',
+            'soc_energy': round(self.soc_energy, 2),
+            'ter_score': round(self.ter_score, 6),
+            'dqi': self.dqi,
         }
 
 

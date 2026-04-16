@@ -16,9 +16,9 @@ NO simplifications. NO shortcuts. This substrate uses the real UBP system:
   - BinaryLinearAlgebra for all GF(2) operations
   - UBPSourceCodeParticlePhysics for fundamental constant derivation
 
-UBP Game Engine v1.0 (built on UBP Core Studio v4.2.7 / v5.3)
+UBP Game Engine v5.1 (built on UBP Core Studio v4.0 / Core v6.2 + Sovereign ALU v9.2)
 Author: E R A Craig, New Zealand
-Date: March 2026
+Date: 16 April 2026
 ================================================================================
 """
 
@@ -100,9 +100,28 @@ E_CONST: Fraction = Fraction(2718281828459045, 1000000000000000)  # Euler's numb
 EXISTENCE_UNIT: Fraction = Fraction(24**3, 1)
 
 # The 13D Sink Leakage (wobble from Triadic Monad)
+# [LAW_TRIADIC_GENESIS_001] MONAD = π × φ × e ≈ 13.81758
 _MONAD = PI * PHI * E_CONST
 _WOBBLE = _MONAD % Fraction(1, 1)
 SINK_L: Fraction = _WOBBLE / Fraction(13, 1)
+
+# The Stereoscopic Sink constant (Baryonic Base)
+# [LAW_TRIADIC_GENESIS_001] L_s = L × (29/24) — used for proton-scale derivations
+# sigma = 29/24 is the Baryonic correction factor from the 13D Sink Protocol
+SINK_SIGMA: Fraction = Fraction(29, 24)
+SINK_L_STEREO: Fraction = SINK_L * SINK_SIGMA
+
+# The Noumenal Volume (primary energy unit of the 24-bit substrate)
+# [LAW_TRIADIC_GENESIS_001] V_n = π × φ × e × 24 ≈ 204.801744
+NOUMENAL_VOLUME: Fraction = _MONAD * Fraction(24, 1)
+
+# Wall of Reality: maximum toggle frequency before state collapse
+# [LAW_TOTAL_EXPERIENCED_RESULT_001] F_MAX = 1 THz
+F_MAX_HZ: int = 10**12
+
+# Conscious Threshold: NRCI ≥ 0.70 → MANIFESTED (physical/observable)
+# [LAW_OBSERVER_DYNAMICS] 0.70 = 7/10 from ObserverDynamicsEngine v7.1
+CONSCIOUS_THRESHOLD: Fraction = Fraction(70, 100)
 
 # Golay substrate properties
 GOLAY_BLOCK_LENGTH: int = 24
@@ -316,6 +335,183 @@ def get_relational_pull(
     return pull
 
 # ---------------------------------------------------------------------------
+# SOVEREIGN ALU INTEGRATION
+# ---------------------------------------------------------------------------
+try:
+    from ubp_eml_alu_sovereign import GrandUnifiedEmlALU
+    _SOVEREIGN_ALU = GrandUnifiedEmlALU()
+    _SOVEREIGN_ALU_LOADED = True
+except ImportError:
+    _SOVEREIGN_ALU = None
+    _SOVEREIGN_ALU_LOADED = False
+
+def get_sovereign_alu():
+    """
+    Return the singleton Sovereign EML ALU instance.
+    [LAW_TRIADIC_GENESIS_001] The Sovereign ALU is a zero-dependency implementation
+    of all transcendental functions from the single EML operator: eml(x,y) = exp(x) - ln(y).
+    PI is derived natively via ln(-1) (Mocz/Odrzywolek Path), confirming the
+    50-term Fraction PI used throughout the engine.
+    """
+    if _SOVEREIGN_ALU is None:
+        raise RuntimeError("Sovereign ALU not loaded. Ensure ubp_eml_alu_sovereign.py is present.")
+    return _SOVEREIGN_ALU
+
+# ---------------------------------------------------------------------------
+# GRAY CODE UMS (Universal Manifold State Encoder)
+# ---------------------------------------------------------------------------
+def gray_code_encode_state(params: Dict[str, float], schema: Dict[str, Dict]) -> List[int]:
+    """
+    Encode continuous parameters into a 24-bit Golay codeword via Gray Code UMS.
+    [LAW_GRAY_CODE_UMS] Uses Gray code to prevent multi-bit transitions when
+    a parameter crosses a boundary — ensuring Hamming distance 1 between
+    adjacent states (the UBP principle of minimal ontological drift).
+
+    schema format: {'param_name': {'min': float, 'max': float, 'bits': int}}
+    Total bits across all params must not exceed 12 (Golay message capacity).
+
+    Example schema for an entity state:
+      {'velocity': {'min': 0.0, 'max': 10.0, 'bits': 4},
+       'nrci':     {'min': 0.0, 'max': 1.0,  'bits': 4},
+       'temp':     {'min': 0.0, 'max': 100.0, 'bits': 4}}
+    """
+    def _to_gray_bits(val: int, bits: int) -> List[int]:
+        g = val ^ (val >> 1)
+        return [(g >> i) & 1 for i in range(bits - 1, -1, -1)]
+
+    message: List[int] = []
+    total_bits = 0
+    for key, bounds in schema.items():
+        bits = int(bounds.get('bits', 3))
+        total_bits += bits
+        if total_bits > 12:
+            raise ValueError(f"Gray Code UMS schema exceeds 12-bit Golay capacity at '{key}'.")
+        val = params.get(key, bounds['min'])
+        max_int = (1 << bits) - 1
+        lo, hi = bounds['min'], bounds['max']
+        norm = (val - lo) / (hi - lo) if hi > lo else 0.0
+        discrete = int(round(max(0.0, min(1.0, norm)) * max_int))
+        message.extend(_to_gray_bits(discrete, bits))
+    while len(message) < 12:
+        message.append(0)
+    return GOLAY_ENGINE.encode(message)
+
+# ---------------------------------------------------------------------------
+# OBSERVER DYNAMICS (Wall of Reality, SOC Energy, Conscious Read, TER)
+# ---------------------------------------------------------------------------
+import math as _math
+
+def calculate_soc_energy(vector_24bit: List[int], nrci: Fraction, toggle_rate_hz: float = 1.0) -> float:
+    """
+    Calculate the State of Coherence (SOC) energy for a 24-bit entity state.
+    [LAW_TOTAL_EXPERIENCED_RESULT_001] SOC = weight × c × Y × NRCI × penalty
+    where penalty is a Gaussian collapse above the Wall of Reality (1 THz).
+    This is the UBP equivalent of E=mc² — the energy of a manifested state.
+    """
+    weight = sum(vector_24bit)
+    penalty = 1.0
+    if toggle_rate_hz > F_MAX_HZ:
+        sigma_hz = 1e11  # 100 GHz decay width
+        penalty = _math.exp(-((toggle_rate_hz - F_MAX_HZ)**2) / (2 * sigma_hz**2))
+    c = float(SPEED_OF_LIGHT_MS)
+    y = float(Y_CONSTANT)
+    n = float(nrci)
+    return weight * c * y * n * penalty
+
+def conscious_read(vector_24bit: List[int], nrci: Fraction) -> Dict[str, Any]:
+    """
+    Determine the Observer state of an entity based on its NRCI.
+    [LAW_OBSERVER_DYNAMICS] NRCI >= 0.70 → MANIFESTED (physical/observable)
+                            NRCI <  0.70 → SUBLIMINAL (below perception threshold)
+    Returns a dict with status, is_manifested, ontology_layers, and new_reality.
+    """
+    is_manifested = nrci >= CONSCIOUS_THRESHOLD
+    layers = {
+        'Reality':     vector_24bit[0:6],
+        'Information': vector_24bit[6:12],
+        'Activation':  vector_24bit[12:18],
+        'Potential':   vector_24bit[18:24],
+    }
+    return {
+        'status': 'MANIFESTED' if is_manifested else 'SUBLIMINAL',
+        'is_manifested': is_manifested,
+        'ontology_layers': layers,
+        'new_reality': layers['Potential'] if is_manifested else [0] * 6,
+    }
+
+def calculate_ter_score(vector_24bit: List[int]) -> float:
+    """
+    Calculate the Total Experienced Result (TER) score.
+    [LAW_TOTAL_EXPERIENCED_RESULT_001]
+    E = M × f × dt
+    where M = active bits (Hamming weight), f = 1/24 (substrate clock),
+    dt = 1/π (synchronization window).
+    High TER = state is 'Experienced' as physical matter rather than noise.
+    """
+    M = sum(vector_24bit)
+    f = Fraction(1, 24)
+    dt = Fraction(1, 1) / PI
+    return float(Fraction(M, 1) * f * dt)
+
+# ---------------------------------------------------------------------------
+# PANTOGRAPH TAX (Macroscopic Affine Kinematic Projection)
+# ---------------------------------------------------------------------------
+def calculate_pantograph_tax(vector_24bit: List[int]) -> Tuple[Fraction, Fraction]:
+    """
+    Calculate the Pantograph (macroscopic) Symmetry Tax for a 24-bit vector.
+    [LAW_PANTOGRAPH_THERMODYNAMICS_001] Affine kinematic projection:
+      k = 1 + WOBBLE
+      V_macro = k³ × V_noum  (volume scales cubically with k)
+      S_macro = k² × S_noum + shear  (surface area scales quadratically)
+      C_macro = V^(2/3) / S_macro  (compactness of the macroscopic projection)
+      T_adj = T_base × (1 - C_macro/13)  (Volumetric Rebate applied)
+      NRCI = 10 / (10 + T_adj)
+    Returns: (T_adj: Fraction, nrci: Fraction)
+    Used for large-scale objects (lever arms, floors, walls).
+    """
+    k = Fraction(1, 1) + _WOBBLE
+    T_base = calculate_symmetry_tax(vector_24bit)
+    shear = T_base - PI
+
+    V_noum = Fraction(sum(vector_24bit), 1)
+    S_noum = Fraction(24, 1)
+
+    V_macro = (k ** 3) * V_noum
+    S_macro = (k ** 2) * S_noum + shear
+
+    V_f = float(V_macro)
+    if V_f <= 0:
+        V_f = 1.0
+    V_23 = Fraction(int(V_f ** (2/3) * 1_000_000), 1_000_000)
+    if S_macro <= 0:
+        S_macro = Fraction(1, 1)
+    C_macro = V_23 / S_macro
+
+    T_adj = T_base * (Fraction(1, 1) - (C_macro / 13))
+    nrci = Fraction(10, 1) / (Fraction(10, 1) + T_adj)
+    return T_adj, nrci
+
+# ---------------------------------------------------------------------------
+# DESIGN QUALITY INDEX (DQI)
+# ---------------------------------------------------------------------------
+def calculate_dqi(nrci: float, u_score: float, gap_score: float) -> float:
+    """
+    Calculate the Design Quality Index (DQI).
+    [LAW_VTE_QUANTIZATION_001] Weighted harmonic mean of:
+      Stability (NRCI, w=0.40), Utility (u_score, w=0.40),
+      Template Accuracy (gap_score, w=0.20).
+    DQI ≥ 0.70 indicates a well-formed, stable, useful UBP entity.
+    """
+    e = 1e-6
+    w_n, w_u, w_t = 0.40, 0.40, 0.20
+    dqi = (w_n + w_u + w_t) / (
+        w_n / max(e, nrci) +
+        w_u / max(e, u_score) +
+        w_t / max(e, gap_score)
+    )
+    return round(min(1.0, dqi), 4)
+
+# ---------------------------------------------------------------------------
 # CONSTRUCTION PATH TAX HELPER
 # ---------------------------------------------------------------------------
 
@@ -493,8 +689,13 @@ class UBPEngineSubstrate:
         self.PI = PI
         self.G_EARTH_MS2 = G_EARTH_MS2
         self.SINK_L = SINK_L
+        self.SINK_L_STEREO = SINK_L_STEREO
+        self.NOUMENAL_VOLUME = NOUMENAL_VOLUME
+        self.F_MAX_HZ = F_MAX_HZ
+        self.CONSCIOUS_THRESHOLD = CONSCIOUS_THRESHOLD
         self.KISSING_NUMBER = KISSING_NUMBER
         self.LEECH_DIMENSION = LEECH_DIMENSION
+        self.sovereign_alu_loaded = _SOVEREIGN_ALU_LOADED
         # Physics engine constants are in ubp_physics_v3 — import lazily
         try:
             from ubp_physics_v3 import (
@@ -544,6 +745,32 @@ class UBPEngineSubstrate:
     # --- Construction Tax ---
     def construction_tax_from_dna(self, math_dna):
         return _construction_tax_from_dna(math_dna)
+
+    # --- Sovereign ALU ---
+    def get_sovereign_alu(self):
+        return get_sovereign_alu()
+
+    # --- Gray Code UMS ---
+    def gray_code_encode_state(self, params, schema):
+        return gray_code_encode_state(params, schema)
+
+    # --- Observer Dynamics ---
+    def calculate_soc_energy(self, vector_24bit, nrci, toggle_rate_hz=1.0):
+        return calculate_soc_energy(vector_24bit, nrci, toggle_rate_hz)
+
+    def conscious_read(self, vector_24bit, nrci):
+        return conscious_read(vector_24bit, nrci)
+
+    def calculate_ter_score(self, vector_24bit):
+        return calculate_ter_score(vector_24bit)
+
+    # --- Pantograph Tax ---
+    def calculate_pantograph_tax(self, vector_24bit):
+        return calculate_pantograph_tax(vector_24bit)
+
+    # --- Design Quality Index ---
+    def calculate_dqi(self, nrci, u_score, gap_score):
+        return calculate_dqi(nrci, u_score, gap_score)
 
     # --- Validation ---
     def validate(self):

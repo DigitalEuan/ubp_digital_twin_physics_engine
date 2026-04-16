@@ -1,12 +1,18 @@
 """
 ================================================================================
-UBP SPACE v4.0 — The Digital Twin World
+UBP SPACE v5.1 — The Digital Twin World
 ================================================================================
-V4.0 Additions:
+V5.1 Additions (UBP Core v6.2 + Sovereign ALU v9.2, 16 April 2026):
+  - Wall of Reality check: entities above F_MAX_HZ (1 THz) SOC frequency
+    are dissolved back to the Noumenal domain (LAW_TOTAL_EXPERIENCED_RESULT_001)
+  - Observer Dynamics state (MANIFESTED/SUBLIMINAL) reported per entity
+  - engine_version updated to '5.1-ubp6.3.2'
+
+V5.0 Additions (retained):
+  - TGIC manifold pressure (LAW_TGIC_9NEIGHBOR_001)
   - Dissolution culling: entities flagged is_dissolving are removed after step
   - Synthesis event log in step() return value
   - UBP mechanics report in get_threejs_state (NRCI, lattice cell, health)
-  - Engine version reported as v4.0
 
 V3.2 Additions (retained):
   - delete_fluid(body_id) — remove a specific fluid body or all fluid
@@ -37,7 +43,10 @@ from ubp_physics_v3 import UBPPhysicsEngineV3, _G_PER_TICK_SQ
 from ubp_rigid_body_v3 import UBPRigidBodyEngineV3, PivotConstraintV3
 from ubp_fluid_v3 import FluidBodyV3
 from ubp_materials import AmbientEnvironment, MaterialRegistry
-from ubp_engine_substrate import Y_CONSTANT, SINK_L, PI
+from ubp_engine_substrate import (
+    Y_CONSTANT, SINK_L, PI,
+    F_MAX_HZ, calculate_soc_energy,
+)
 # UBP 50-term π for angle display (replaces math.pi)
 _PI_FLOAT: float = float(PI)
 
@@ -358,6 +367,23 @@ class UBPSpaceV3:
                     damage = float(pressure) * 0.001
                     entity.apply_synthesis_damage(damage)
 
+        # ---- V5.1: WALL OF REALITY CHECK (LAW_TOTAL_EXPERIENCED_RESULT_001) ----
+        # Any entity whose SOC energy frequency exceeds F_MAX_HZ (1 THz) is
+        # above the Wall of Reality and cannot be manifested in the Phenomenal
+        # domain. It collapses back to the Noumenal domain (is_dissolving=True).
+        # SOC energy is recalculated each tick from the live Golay vector.
+        # Formula: f_soc = soc_energy / (Y * dt)
+        # If f_soc > F_MAX_HZ: entity is above Wall of Reality -> dissolve.
+        _dt = 1.0 / self.ticks_per_second
+        _f_max = float(F_MAX_HZ)
+        _y_f = float(Y_CONSTANT)
+        for entity in self._entity_list:
+            if entity.is_static:
+                continue
+            soc_e = calculate_soc_energy(entity.golay_vector, entity.nrci)
+            f_soc = soc_e / max(_y_f * _dt, 1e-30)
+            if f_soc > _f_max:
+                entity.is_dissolving = True
         # ---- V4.0: DISSOLUTION CULLING (LAW_TOPOLOGICAL_BUFFER_001) ----
         dissolved_ids = []
         synthesis_log = []
@@ -471,7 +497,7 @@ class UBPSpaceV3:
         return {
             'tick': self.tick,
             'time_s': round(self.time_seconds, 4),
-            'engine_version': '5.0-ubp6.3.1',
+            'engine_version': '5.1-ubp6.3.2',
             'ubp_mechanics': _UBP_MECHANICS_AVAILABLE,
             'ambient': {
                 'temperature_K': round(float(self.ambient.temperature_K), 2),

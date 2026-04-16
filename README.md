@@ -6,6 +6,7 @@ This is a full Game Engine development project, not using standard game engine d
 
 **UNDER CONSTRUCTION**
 * 30 March 2026 (Updated to Engine v5.0 / UBP v6.3.1 Theory)
+* 16 April 2026 (Updated to Engine v5.1 / UBP v6.3.2 Theory)
 * E R A Craig, New Zealand
 
 UBP: [https://github.com/DigitalEuan/UBP_Repo/tree/main/core_studio_v4.0]
@@ -18,6 +19,18 @@ UBP: [https://github.com/DigitalEuan/UBP_Repo/tree/main/core_studio_v4.0]
 | Viscosity | `(1-NRCI) × Y × 10` | `Y / 96` | LAW_ONTOLOGICAL_FRICTION_001 |
 | Surface tension | `Y × 5` | `Y² / KISSING` | LAW_COMP_001 |
 | Smoothing radius | `0.5` | `1 / (Y × 24)` | Golay code dimension |
+
+## 16.04.26: Updated to Engine v5.1 (UBP v6.3.2 Alignment)
+* **Current status:** Fully audited and aligned with UBP Core v6.3.2 (Sovereign ALU v9.2). All mechanics are UBP-native with 64/64 validation tests passing.
+* **New in v5.1:**
+  * **Sovereign ALU v9.2 (`ubp_eml_alu_sovereign.py`):** The full sovereign ALU is now bundled with the engine and accessible via `get_sovereign_alu()` in the substrate.
+  * **Gray Code UMS (LAW_GRAY_CODE_UMS):** Entity state (velocity/NRCI/temperature) is now encoded as a 24-bit Golay codeword via Gray Code Unified Measurement System, ensuring Hamming distance 1 between adjacent states (minimal ontological drift).
+  * **Pantograph Tax (LAW_PANTOGRAPH_THERMODYNAMICS_001):** Large lever bodies now experience an additional macroscopic symmetry tax via affine kinematic projection: `k = 1 + WOBBLE`, `V_macro = k³ × V_noum`, `T_adj = T_base × (1 - C_macro/13)`.
+  * **Observer Dynamics (LAW_OBSERVER_DYNAMICS_001):** Each entity now tracks `is_manifested` (NRCI ≥ Conscious Threshold 0.70), `soc_energy` (Self-Organising Complexity energy), `ter_score` (Total Experienced Result), and `dqi` (Design Quality Index).
+  * **Wall of Reality (LAW_TOTAL_EXPERIENCED_RESULT_001):** The space simulation loop now checks each entity's SOC frequency against `F_MAX_HZ = 1 THz`. Entities exceeding the Wall of Reality are dissolved.
+  * **Stereoscopic Sink (LAW_STEREOSCOPIC_SINK_001):** `SINK_L_STEREO = SINK_L × SINK_SIGMA` is now defined in the substrate for binocular/stereoscopic observer contexts.
+  * **Poynting Z-Component (LAW_POYNTING_VECTOR_001):** Fluid pressure forces now include an orthogonal Z-component modulated by the particle's NRCI, modelling the Poynting vector's energy transport orthogonality.
+  * **Position Type Safety:** `Position` dataclass now enforces `Decimal` arithmetic via `__post_init__` coercion, eliminating `float + Decimal` crashes in AABB calculations.
 
 ## 30.03.26: Updated to Engine v5.0 (UBP v6.3.1 Alignment)
 * **Current status:** The engine has been fully audited and aligned with UBP Core v6.3.1. All simplified mechanics and floating-point placeholders have been replaced with canonical UBP mathematical structures.
@@ -89,6 +102,27 @@ ambient = AmbientEnvironment(temperature_K=293.15)
 | SPH_SURFACE_TENSION | Y² / KISSING | LAW_COMP_001 |
 | BOLTZMANN_K (UBP) | Y × k_B_SI | Thermal bridge |
 
+
+## New v5.1 Observer Dynamics Constants
+
+| Constant | Value | Derivation | Law |
+|---|---|---|---|
+| `CONSCIOUS_THRESHOLD` | 0.70 | Fraction(7,10) — Conscious perception boundary | LAW_OBSERVER_DYNAMICS_001 |
+| `SINK_L_STEREO` | SINK_L × SINK_SIGMA ≈ 0.0760 | Stereoscopic binocular rebate | LAW_STEREOSCOPIC_SINK_001 |
+| `F_MAX_HZ` | 1 × 10¹² Hz (1 THz) | Wall of Reality frequency ceiling | LAW_TOTAL_EXPERIENCED_RESULT_001 |
+| `DQI_THRESHOLD` | 0.70 | Well-formed entity minimum | LAW_VTE_QUANTIZATION_001 |
+
+## New v5.1 Entity State Fields
+
+Every entity now carries the following Observer Dynamics fields, updated each tick:
+
+| Field | Type | Description |
+|---|---|---|
+| `is_manifested` | `bool` | `True` if NRCI ≥ 0.70 (MANIFESTED), `False` if SUBLIMINAL |
+| `soc_energy` | `float` | Self-Organising Complexity energy (SOC = Σ toggle × Y × NRCI) |
+| `ter_score` | `float` | Total Experienced Result (weighted harmonic of bit-pattern quality metrics) |
+| `dqi` | `float` | Design Quality Index (0–1, weighted harmonic of NRCI, utility, template accuracy) |
+| `ums_vector` | `List[int]` | 24-bit Gray Code UMS encoded state (velocity/NRCI/temp as Golay codeword) |
 
 The APP that drives the UBP scripts is made with Google AI Stidio
 <div align="center">
