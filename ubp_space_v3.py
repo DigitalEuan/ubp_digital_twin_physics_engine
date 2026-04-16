@@ -255,6 +255,9 @@ class UBPSpaceV3:
         material_name: str = 'iron',
         y: float = 15.0,
         grid_cell_size: float = 1.0,
+        width: float = 1.0,
+        height: float = 1.0,
+        depth: float = 1.0,
     ) -> UBPEntityV3:
         """
         Spawn a block at a specific grid cell position.
@@ -266,6 +269,7 @@ class UBPSpaceV3:
             label=f'{material_name.capitalize()}_{grid_x}_{grid_z}',
             material_name=material_name,
             position=Position(D(str(world_x)), D(str(y)), D(str(world_z))),
+            size=(width, height, depth),
         )
         self.add_entity(block)
         return block

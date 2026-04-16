@@ -49,6 +49,13 @@ interface EntityState {
   /** Temperature in Kelvin (UBP-derived). */
   temperature_K: number;
   velocity: Vec3;
+  // v5.1: Observer Dynamics
+  is_manifested?: boolean;
+  observer_status?: string;
+  soc_energy?: number;
+  ter_score?: number;
+  dqi?: number;
+  ums_vector?: number[];
 }
 
 interface FluidParticleState {
@@ -513,11 +520,25 @@ const EntityCard = ({
             </span>
           </div>
         )}
+        {entity.dqi !== undefined && (
+          <div className="col-span-2 text-[10px] text-slate-500 flex justify-between">
+            <span>DQI: <span className="text-fuchsia-400">{entity.dqi.toFixed(4)}</span></span>
+            <span>TER: <span className="text-fuchsia-400">{entity.ter_score?.toFixed(4)}</span></span>
+          </div>
+        )}
+        {entity.soc_energy !== undefined && (
+          <div className="col-span-2 text-[10px] text-slate-500">
+            SOC Energy: <span className="text-fuchsia-400">{entity.soc_energy.toFixed(2)}</span>
+          </div>
+        )}
       </div>
       <div className="flex gap-2 text-[10px] flex-wrap">
         {entity.is_static && <span className="text-amber-400">STATIC</span>}
         {entity.is_resting && <span className="text-emerald-400">AT REST</span>}
         {entity.is_dissolving && <span className="text-red-400 animate-pulse">◉ DISSOLVING</span>}
+        {entity.is_manifested !== undefined && (
+          entity.is_manifested ? <span className="text-fuchsia-400">MANIFESTED</span> : <span className="text-slate-500">SUBLIMINAL</span>
+        )}
         {selected && <span className="text-indigo-400">SELECTED</span>}
         {tempDelta > 1 && <span style={{ color: tempColour }}>▲ HOT +{tempDelta.toFixed(1)}K</span>}
       </div>
@@ -815,6 +836,7 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [gridPlacementMode, setGridPlacementMode] = useState(false);
   const [gridMaterial, setGridMaterial] = useState('iron');
+  const [spawnScale, setSpawnScale] = useState<Vec3>({ x: 1, y: 1, z: 1 });
   const [demoStatus, setDemoStatus] = useState<string | null>(null);
   // V4.0: UBP mechanics state
   const [engineTestResult, setEngineTestResult] = useState<any>(null);
@@ -923,9 +945,12 @@ export default function App() {
       material: gridMaterial,
       y: 15.0,
       cell_size: 1.0,
+      width: spawnScale.x,
+      height: spawnScale.y,
+      depth: spawnScale.z,
     });
     // Keep placement mode active for rapid building
-  }, [gridMaterial, sendCommand]);
+  }, [gridMaterial, spawnScale, sendCommand]);
 
   const handleDemoDisplacement = useCallback(() => {
     setDemoStatus('Setting up displacement demo…');
@@ -1176,6 +1201,50 @@ export default function App() {
               {/* Spawn Entities */}
               <div>
                 <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Spawn Entities</h3>
+                
+                {/* Scale Controls */}
+                <div className="bg-slate-900 p-3 rounded-lg border border-slate-700 mb-3 space-y-2">
+                  <div className="text-xs text-slate-400 font-semibold">Spawn Scale (Pantograph Tax)</div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <label className="block text-[10px] text-slate-500 mb-1">Width (X)</label>
+                      <input
+                        type="number"
+                        min="0.1"
+                        step="0.1"
+                        value={spawnScale.x}
+                        onChange={(e) => setSpawnScale(s => ({ ...s, x: Math.max(0.1, parseFloat(e.target.value) || 1) }))}
+                        className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-slate-500 mb-1">Height (Y)</label>
+                      <input
+                        type="number"
+                        min="0.1"
+                        step="0.1"
+                        value={spawnScale.y}
+                        onChange={(e) => setSpawnScale(s => ({ ...s, y: Math.max(0.1, parseFloat(e.target.value) || 1) }))}
+                        className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-slate-500 mb-1">Depth (Z)</label>
+                      <input
+                        type="number"
+                        min="0.1"
+                        step="0.1"
+                        value={spawnScale.z}
+                        onChange={(e) => setSpawnScale(s => ({ ...s, z: Math.max(0.1, parseFloat(e.target.value) || 1) }))}
+                        className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+                      />
+                    </div>
+                  </div>
+                  <div className="text-[10px] text-amber-400/80 italic mt-1">
+                    Volume: {(spawnScale.x * spawnScale.y * spawnScale.z).toFixed(2)} cells³
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-2 gap-2">
                   {[
                     { material: 'iron',      label: 'Iron Block',   colour: '#8B7355', y: 15 },
@@ -1189,6 +1258,9 @@ export default function App() {
                         material, y,
                         x: 5 + Math.random() * 10,
                         z: Math.random() * 4 - 2,
+                        width: spawnScale.x,
+                        height: spawnScale.y,
+                        depth: spawnScale.z,
                       })}
                       className="flex flex-col items-center gap-2 p-3 bg-slate-700/50 hover:bg-slate-700 rounded-lg border border-slate-600 transition-colors text-xs"
                     >
@@ -1203,6 +1275,9 @@ export default function App() {
                       x: 5 + Math.random() * 8,
                       y: 8,
                       z: Math.random() * 4 - 2,
+                      width: spawnScale.x,
+                      height: spawnScale.y,
+                      depth: spawnScale.z,
                     })}
                     className="flex flex-col items-center gap-2 p-3 bg-slate-700/50 hover:bg-slate-700 rounded-lg border border-slate-600 transition-colors text-xs col-span-2"
                   >
@@ -1226,7 +1301,7 @@ export default function App() {
                       x: 3 + Math.random() * 8,
                       y: 1.0,
                       z: Math.random() * 4 - 2,
-                      length: 8,
+                      length: spawnScale.x * 8, // Scale the default length of 8
                     })}
                     className="flex flex-col items-center gap-2 p-3 bg-slate-700/50 hover:bg-slate-700 rounded-lg border border-slate-600 transition-colors text-xs col-span-2"
                   >
@@ -1300,6 +1375,8 @@ export default function App() {
                 <div>• Use Lever cards in Data tab to set angle</div>
                 <div>• Build → Fill → Demo for displacement test</div>
                 <div>• Delete individual fluid bodies in Data tab</div>
+                <div>• Scale is set using the Spawn Scale controls below.</div>
+                <div>• Large objects automatically incur the Pantograph Tax.</div>
               </div>
             </>
           )}
@@ -1436,13 +1513,15 @@ export default function App() {
                   Cohesion: molecules attract via surface tension kernel.
                   Two-way coupling: fluid pushes back on solid bodies.
                   Cross-body SPH: all fluid bodies interact with each other.
+                  Poynting Z-Component: pressure forces include an orthogonal 
+                  Z-component modulated by the particle's NRCI.
                 </div>
               </div>
               <div className="bg-slate-900 p-3 rounded-lg border border-slate-700 text-xs font-mono space-y-1.5">
                 <div className="text-slate-500 mb-2">Lever (Topological Torque)</div>
                 <div className="flex justify-between">
                   <span className="text-slate-400">I = m×L²/12</span>
-                  <span className="text-amber-400">×(1+NRCI)×Vol</span>
+                  <span className="text-amber-400">×(1+NRCI)×Pantograph</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-400">Damping</span>
@@ -1451,8 +1530,8 @@ export default function App() {
                 <div className="text-slate-400 text-[10px] mt-1 leading-relaxed">
                   Lever angle can be set directly via slider in Data tab.
                   Blocks placed on the lever arm create torque proportional
-                  to mass × distance from pivot. The lever will tip and the
-                  block will roll or slide depending on its NRCI.
+                  to mass × distance from pivot. Large levers pay the 
+                  Pantograph Tax (macroscopic symmetry tax) to rotate.
                 </div>
               </div>
               <div className="bg-slate-900 p-3 rounded-lg border border-slate-700 text-xs font-mono space-y-1.5">
@@ -1471,19 +1550,71 @@ export default function App() {
           {/* UBP MECHANICS TAB */}
           {activeTab === 'ubp' && (
             <div className="space-y-4">
-              <h3 className="text-xs font-semibold text-violet-400 uppercase tracking-wider">UBP Mechanics v4.0</h3>
+              <h3 className="text-xs font-semibold text-violet-400 uppercase tracking-wider">UBP Mechanics v5.1</h3>
 
               {/* Engine version badge */}
               <div className="bg-violet-900/20 border border-violet-500/30 rounded-lg p-3 text-xs font-mono">
                 <div className="flex justify-between items-center">
                   <span className="text-violet-300 font-bold">Engine</span>
-                  <span className="text-slate-300">{state?.engine_version ?? 'v4.0'}</span>
+                  <span className="text-slate-300">{state?.engine_version ?? 'v5.1'}</span>
                 </div>
                 <div className="flex justify-between items-center mt-1">
                   <span className="text-violet-300">UBP Mechanics</span>
                   <span className={state?.ubp_mechanics ? 'text-emerald-400' : 'text-red-400'}>
                     {state?.ubp_mechanics ? '◉ ACTIVE' : '○ INACTIVE'}
                   </span>
+                </div>
+              </div>
+
+              {/* Observer Dynamics */}
+              <div className="bg-slate-900 p-3 rounded-lg border border-fuchsia-700/40 text-xs font-mono space-y-1.5">
+                <div className="text-fuchsia-400 font-semibold mb-1">👁 Observer Dynamics (LAW_OBSERVER_DYNAMICS_001)</div>
+                <div className="text-slate-400 text-[10px] leading-relaxed">
+                  Entities with NRCI ≥ 0.70 are MANIFESTED in the Phenomenal domain. 
+                  Below 0.70, they are SUBLIMINAL. The Wall of Reality enforces a 
+                  maximum State of Coherence (SOC) frequency of 1 THz. Entities 
+                  exceeding this collapse back to the Noumenal domain.
+                </div>
+                <div className="flex justify-between mt-1">
+                  <span className="text-slate-500">Conscious Threshold</span>
+                  <span className="text-fuchsia-300">0.70 (7/10)</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Wall of Reality (F_MAX)</span>
+                  <span className="text-fuchsia-300">1 THz</span>
+                </div>
+              </div>
+
+              {/* Sovereign ALU */}
+              <div className="bg-slate-900 p-3 rounded-lg border border-blue-700/40 text-xs font-mono space-y-1.5">
+                <div className="text-blue-400 font-semibold mb-1">⚙ Sovereign ALU v9.2</div>
+                <div className="text-slate-400 text-[10px] leading-relaxed">
+                  Zero-dependency continuous ALU. All transcendental functions 
+                  implemented natively via the EML operator: eml(x,y) = exp(x) - ln(y). 
+                  Derives the Triadic Monad (π·φ·e) and fundamental constants 
+                  (Proton/Electron ratio, Alpha Inverse) natively.
+                </div>
+              </div>
+
+              {/* Gray Code UMS */}
+              <div className="bg-slate-900 p-3 rounded-lg border border-teal-700/40 text-xs font-mono space-y-1.5">
+                <div className="text-teal-400 font-semibold mb-1">▤ Gray Code UMS (LAW_GRAY_CODE_UMS)</div>
+                <div className="text-slate-400 text-[10px] leading-relaxed">
+                  Entity state (velocity, NRCI, temperature) is encoded as a 24-bit 
+                  Golay codeword via Gray Code. This ensures Hamming distance 1 
+                  between adjacent states, minimizing ontological drift during 
+                  continuous state transitions.
+                </div>
+              </div>
+
+              {/* Pantograph Tax */}
+              <div className="bg-slate-900 p-3 rounded-lg border border-amber-700/40 text-xs font-mono space-y-1.5">
+                <div className="text-amber-400 font-semibold mb-1">◱ Pantograph Tax (LAW_PANTOGRAPH_THERMODYNAMICS_001)</div>
+                <div className="text-slate-400 text-[10px] leading-relaxed">
+                  Macroscopic symmetry tax for large bodies. The affine kinematic 
+                  projection scales cubically with physical volume relative to the 
+                  Noumenal primitive. Large structures pay a higher topological 
+                  cost to rotate, replacing the classical volumetric rebate.
                 </div>
               </div>
 

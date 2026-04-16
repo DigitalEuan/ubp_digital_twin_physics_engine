@@ -155,7 +155,10 @@ class UBPSimulation:
                     mat = msg.get("material", "iron")
                     y = float(msg.get("y", 15.0))
                     cell_size = float(msg.get("cell_size", 1.0))
-                    block = self.space.spawn_block_at_grid(grid_x, grid_z, mat, y, cell_size)
+                    width = float(msg.get("width", 1.0))
+                    height = float(msg.get("height", 1.0))
+                    depth = float(msg.get("depth", 1.0))
+                    block = self.space.spawn_block_at_grid(grid_x, grid_z, mat, y, cell_size, width, height, depth)
                     self._entity_counter += 1
                 elif cmd == "spawn_fluid":
                     x = float(msg.get("x", 0))

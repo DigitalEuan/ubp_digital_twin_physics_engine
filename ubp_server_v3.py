@@ -129,26 +129,29 @@ class UBPSimulationManager:
         state['is_running'] = self.is_running
         return state
 
-    def spawn_block(self, material: str, x: float, y: float, z: float) -> Optional[int]:
+    def spawn_block(self, material: str, x: float, y: float, z: float, width: float = 1.0, height: float = 1.0, depth: float = 1.0) -> Optional[int]:
         if self.space is None:
             return None
         from ubp_entity_v3 import AABB
         test_x = D(str(x))
         test_y = D(str(y))
         test_z = D(str(z))
-        block_size = D('1')
+        w_d = D(str(width))
+        h_d = D(str(height))
+        d_d = D(str(depth))
         for _ in range(20):
             test_aabb = AABB(test_x, test_y, test_z,
-                             test_x + block_size, test_y + block_size, test_z + block_size)
+                             test_x + w_d, test_y + h_d, test_z + d_d)
             overlap = any(test_aabb.overlaps(e.aabb()) for e in self.space._entity_list)
             if not overlap:
                 break
-            test_y += block_size
+            test_y += h_d
         self._entity_counter += 1
         label = f"{material.capitalize()}_{self._entity_counter}"
         block = EntityFactoryV3.make_block(
             label=label, material_name=material,
             position=Position(test_x, test_y, test_z),
+            size=(width, height, depth)
         )
         self.space.add_entity(block)
         return block.entity_id
@@ -157,6 +160,7 @@ class UBPSimulationManager:
         self, grid_x: int, grid_z: int,
         material: str = 'iron', y: float = 15.0,
         grid_cell_size: float = 1.0,
+        width: float = 1.0, height: float = 1.0, depth: float = 1.0,
     ) -> Optional[int]:
         """Spawn a block at a grid cell coordinate."""
         if self.space is None:
@@ -165,6 +169,7 @@ class UBPSimulationManager:
             grid_x=grid_x, grid_z=grid_z,
             material_name=material, y=y,
             grid_cell_size=grid_cell_size,
+            width=width, height=height, depth=depth,
         )
         self._entity_counter += 1
         return block.entity_id
@@ -184,11 +189,16 @@ class UBPSimulationManager:
             return 0
         return self.space.delete_fluid(body_id)
 
-    def spawn_fluid(self, x: float, y: float, z: float) -> int:
+    def spawn_fluid(self, x: float, y: float, z: float, width: float = 4.0, height: float = 3.0, depth: float = 4.0) -> int:
         if self.space is None:
             return -1
         fluid = FluidBodyV3(material_name='water')
-        fluid.emit_pool(origin_x=x, origin_y=y, origin_z=z, width=4, height=3, depth=4)
+        # spacing is 0.35 by default in emit_pool
+        spacing = 0.35
+        p_width = max(1, int(width / spacing))
+        p_height = max(1, int(height / spacing))
+        p_depth = max(1, int(depth / spacing))
+        fluid.emit_pool(origin_x=x, origin_y=y, origin_z=z, width=p_width, height=p_height, depth=p_depth)
         self.space.add_fluid(fluid)
         return fluid.body_id
 
@@ -461,8 +471,11 @@ async def websocket_endpoint(websocket: WebSocket):
                 x = float(msg.get("x", 0))
                 y = float(msg.get("y", 10))
                 z = float(msg.get("z", 0))
-                eid = sim.spawn_block(mat, x, y, z)
-                logger.info(f"Spawned {mat} block (id={eid}) at ({x},{y},{z})")
+                width = float(msg.get("width", 1.0))
+                height = float(msg.get("height", 1.0))
+                depth = float(msg.get("depth", 1.0))
+                eid = sim.spawn_block(mat, x, y, z, width, height, depth)
+                logger.info(f"Spawned {mat} block (id={eid}) at ({x},{y},{z}) size=({width},{height},{depth})")
 
             elif cmd == "spawn_block_at_grid":
                 grid_x = int(msg.get("grid_x", 0))
@@ -470,15 +483,21 @@ async def websocket_endpoint(websocket: WebSocket):
                 mat = msg.get("material", "iron")
                 y = float(msg.get("y", 15.0))
                 cell_size = float(msg.get("cell_size", 1.0))
-                eid = sim.spawn_block_at_grid(grid_x, grid_z, mat, y, cell_size)
+                width = float(msg.get("width", 1.0))
+                height = float(msg.get("height", 1.0))
+                depth = float(msg.get("depth", 1.0))
+                eid = sim.spawn_block_at_grid(grid_x, grid_z, mat, y, cell_size, width, height, depth)
                 logger.info(f"Spawned {mat} block at grid ({grid_x},{grid_z}) -> entity {eid}")
 
             elif cmd == "spawn_fluid":
                 x = float(msg.get("x", 0))
                 y = float(msg.get("y", 5))
                 z = float(msg.get("z", 0))
-                bid = sim.spawn_fluid(x, y, z)
-                logger.info(f"Spawned fluid pool (body_id={bid}) at ({x},{y},{z})")
+                width = float(msg.get("width", 4.0))
+                height = float(msg.get("height", 3.0))
+                depth = float(msg.get("depth", 4.0))
+                bid = sim.spawn_fluid(x, y, z, width, height, depth)
+                logger.info(f"Spawned fluid pool (body_id={bid}) at ({x},{y},{z}) size=({width},{height},{depth})")
 
             elif cmd == "delete_fluid":
                 body_id = msg.get("body_id", None)
@@ -575,15 +594,6 @@ async def websocket_endpoint(websocket: WebSocket):
                 await manager.broadcast(state)
                 logger.info(f"Displacement demo set up: {result}")
                 continue  # Already broadcast
-
-            elif cmd == "spawn_block_at_grid":
-                gx = int(msg.get("grid_x", 0))
-                gz = int(msg.get("grid_z", 0))
-                mat = msg.get("material", "silicon")
-                y = float(msg.get("y", 1.0))
-                cs = float(msg.get("cell_size", 1.0))
-                eid = sim.spawn_block_at_grid(gx, gz, mat, y, cs)
-                logger.info(f"Spawned block at grid ({gx},{gz}) -> {eid}")
 
             elif cmd == "ubp_report":
                 eid = int(msg.get("entity_id", 0))
@@ -803,13 +813,13 @@ async def post_command(req: CommandRequest):
     elif cmd == "reset":
         sim.reset()
     elif cmd == "spawn_block":
-        eid = sim.spawn_block(req.material, req.x, req.y, req.z)
+        eid = sim.spawn_block(req.material, req.x, req.y, req.z, req.width, req.height, req.depth)
         return JSONResponse(content={"ok": True, "entity_id": eid})
     elif cmd == "spawn_block_at_grid":
-        eid = sim.spawn_block_at_grid(req.grid_x, req.grid_z, req.material, req.y, req.cell_size)
+        eid = sim.spawn_block_at_grid(req.grid_x, req.grid_z, req.material, req.y, req.cell_size, req.width, req.height, req.depth)
         return JSONResponse(content={"ok": True, "entity_id": eid})
     elif cmd == "spawn_fluid":
-        bid = sim.spawn_fluid(req.x, req.y, req.z)
+        bid = sim.spawn_fluid(req.x, req.y, req.z, req.width, req.height, req.depth)
         return JSONResponse(content={"ok": True, "body_id": bid})
     elif cmd == "delete_fluid":
         count = sim.delete_fluid(req.body_id)

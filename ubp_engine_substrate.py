@@ -456,20 +456,30 @@ def calculate_ter_score(vector_24bit: List[int]) -> float:
 # ---------------------------------------------------------------------------
 # PANTOGRAPH TAX (Macroscopic Affine Kinematic Projection)
 # ---------------------------------------------------------------------------
-def calculate_pantograph_tax(vector_24bit: List[int]) -> Tuple[Fraction, Fraction]:
+def calculate_pantograph_tax(vector_24bit: List[int], physical_volume: Optional[float] = None) -> Tuple[Fraction, Fraction]:
     """
     Calculate the Pantograph (macroscopic) Symmetry Tax for a 24-bit vector.
     [LAW_PANTOGRAPH_THERMODYNAMICS_001] Affine kinematic projection:
-      k = 1 + WOBBLE
+      k = 1 + WOBBLE (or derived from physical_volume / NOUMENAL_VOLUME)
       V_macro = k³ × V_noum  (volume scales cubically with k)
       S_macro = k² × S_noum + shear  (surface area scales quadratically)
       C_macro = V^(2/3) / S_macro  (compactness of the macroscopic projection)
       T_adj = T_base × (1 - C_macro/13)  (Volumetric Rebate applied)
       NRCI = 10 / (10 + T_adj)
     Returns: (T_adj: Fraction, nrci: Fraction)
-    Used for large-scale objects (lever arms, floors, walls).
+    Used for large-scale objects (lever arms, floors, walls) to scale from the 
+    absolute primitive voxel up to macroscopic sizes.
     """
-    k = Fraction(1, 1) + _WOBBLE
+    if physical_volume is not None and physical_volume > 0:
+        # Scale k based on physical volume relative to the Noumenal primitive
+        vol_ratio = physical_volume / float(NOUMENAL_VOLUME)
+        # k is the 1D scaling factor, so we take the cube root of the volume ratio
+        k_val = vol_ratio ** (1.0 / 3.0)
+        # Ensure k is at least 1 (we don't scale below the noumenal primitive)
+        k = Fraction(int(max(1.0, k_val) * 1_000_000), 1_000_000)
+    else:
+        k = Fraction(1, 1) + _WOBBLE
+
     T_base = calculate_symmetry_tax(vector_24bit)
     shear = T_base - PI
 

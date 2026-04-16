@@ -439,36 +439,23 @@ class UBPEntityV3:
         through the Leech Lattice. This is the Tax differential between the
         jagged (rotating) state and the snapped (aligned) state.
 
-        Formula:
-          I = mass * (w² + h² + d²) / 12 * (1 + NRCI) * Volumetric_Rebate
-
-        The (1 + NRCI) factor is the Topological Torque correction:
-          - High NRCI (coherent) = more resistance to rotation
-          - Low NRCI (chaotic) = less resistance to rotation
-
-        The Volumetric Rebate (LAW_VOLUMETRIC_REBATE_001):
-          Rebate = 1 - (Compactness / 13)
-          Compactness = V^(2/3) / Surface_Area
+        v5.1: Uses Pantograph Tax (LAW_PANTOGRAPH_THERMODYNAMICS_001) for
+        macroscopic scaling. The physical volume scales the affine projection,
+        which inherently includes the Volumetric Rebate.
         """
         w, h, d = self.size
         # Classical box inertia
         I_classical = self.mass * (w*w + h*h + d*d) / D('12')
 
-        # Topological Torque correction
-        nrci_d = to_decimal(self.nrci)
+        # Use Pantograph Tax for macroscopic scaling
+        physical_vol = float(w * h * d)
+        p_tax_adj, p_nrci = calculate_pantograph_tax(self.golay_vector, physical_volume=physical_vol)
+        
+        # The Pantograph NRCI incorporates the volumetric rebate and scale
+        nrci_d = to_decimal(p_nrci)
         I_topo = I_classical * (D1 + nrci_d)
-
-        # Volumetric Rebate
-        volume = w * h * d
-        surface = D('2') * (w*h + h*d + w*d)
-        if surface > D0:
-            compactness = (volume ** D('0.6667')) / surface
-            rebate = D1 - compactness / D('13')
-            rebate = max(D('0.5'), min(D1, rebate))  # Clamp to [0.5, 1.0]
-        else:
-            rebate = D1
-
-        return I_topo * rebate
+        
+        return I_topo
 
     def aabb(self) -> AABB:
         """Return the current Axis-Aligned Bounding Box."""

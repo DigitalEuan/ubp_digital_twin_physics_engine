@@ -385,7 +385,11 @@ class UBPRigidBodyEngineV3:
         # The pantograph NRCI is lower than the base NRCI for large/jagged bodies,
         # meaning they resist rotation more in the macroscopic domain.
         if net_torque != D0:
-            p_tax_adj, p_nrci = calculate_pantograph_tax(constraint.lever.golay_vector)
+            # Calculate physical volume of the lever for dynamic scaling
+            w, h, d = constraint.lever.size
+            physical_vol = float(w * h * d)
+            
+            p_tax_adj, p_nrci = calculate_pantograph_tax(constraint.lever.golay_vector, physical_volume=physical_vol)
             # Pantograph resistance = difference between base tax and pantograph tax
             base_tax = to_decimal(calculate_symmetry_tax(constraint.lever.golay_vector))
             p_resistance = abs(to_decimal(p_tax_adj) - base_tax) * _Y
