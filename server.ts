@@ -224,6 +224,62 @@ async function startServer() {
   });
 
   // -------------------------------------------------------------------------
+  // v5.4 NEW ENDPOINTS — expose v5.4 substrate features through HTTP
+  // -------------------------------------------------------------------------
+
+  // All 13 v5.4 substrate constants (Y, w, L, L_s, sigma, U_e, monad, pi, phi,
+  // e, shear_1, shear_2, Y_INV)
+  app.get('/v54/constants', async (_req, res) => {
+    try {
+      const result = await bridge.request({ type: 'command', command: 'v54_constants' });
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  // 6 canonical v5.4 physics formula predictions with error budgets
+  // (muon, alpha_s, alpha³, H0, Omega_k, G — UBP_SKILL_1 §9)
+  app.get('/v54/physics_predictions', async (_req, res) => {
+    try {
+      const result = await bridge.request({ type: 'command', command: 'v54_physics_predictions' });
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  // Physics registry status — all 7 core domains with GREEN/YELLOW/RED status
+  app.get('/v54/registry', async (_req, res) => {
+    try {
+      const result = await bridge.request({ type: 'command', command: 'physics_registry_status' });
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  // Triad engine status (Golay, Leech, Monster, BarnesWall, TriadActivation)
+  app.get('/v54/triad', async (_req, res) => {
+    try {
+      const result = await bridge.request({ type: 'command', command: 'triad_status' });
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  // Full substrate validation report
+  app.get('/v54/validate', async (_req, res) => {
+    try {
+      const result = await bridge.request({ type: 'command', command: 'substrate_validate' });
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  // -------------------------------------------------------------------------
   // Vite dev middleware — no httpServer passed, no HMR wiring
   // -------------------------------------------------------------------------
   if (process.env.NODE_ENV !== 'production') {

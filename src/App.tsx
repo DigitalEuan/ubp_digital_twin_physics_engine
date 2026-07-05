@@ -841,6 +841,11 @@ export default function App() {
   // V4.0: UBP mechanics state
   const [engineTestResult, setEngineTestResult] = useState<any>(null);
   const [engineTestLoading, setEngineTestLoading] = useState(false);
+  // v5.4 NEW: v5.4 substrate status panel state
+  const [v54Constants, setV54Constants] = useState<any>(null);
+  const [v54Predictions, setV54Predictions] = useState<any>(null);
+  const [v54Registry, setV54Registry] = useState<any>(null);
+  const [v54Loading, setV54Loading] = useState(false);
   const [synthesisLog, setSynthesisLog] = useState<Array<{tick: number; a: string; b: string; hamming: number; restitution: number}>>([]);
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -971,6 +976,25 @@ export default function App() {
       setEngineTestResult({ error: String(e) });
     } finally {
       setEngineTestLoading(false);
+    }
+  }, []);
+
+  // v5.4 NEW: Fetch all v5.4 substrate status (constants + predictions + registry)
+  const handleFetchV54 = useCallback(async () => {
+    setV54Loading(true);
+    try {
+      const [consts, preds, reg] = await Promise.all([
+        fetch('/v54/constants').then(r => r.json()),
+        fetch('/v54/physics_predictions').then(r => r.json()),
+        fetch('/v54/registry').then(r => r.json()),
+      ]);
+      setV54Constants(consts);
+      setV54Predictions(preds);
+      setV54Registry(reg);
+    } catch (e) {
+      setV54Constants({ error: String(e) });
+    } finally {
+      setV54Loading(false);
     }
   }, []);
 
@@ -1762,6 +1786,70 @@ export default function App() {
                         ))}
                       </>
                     )}
+                  </div>
+                )}
+              </div>
+
+              {/* v5.4 Substrate Status Panel */}
+              <div className="bg-slate-900 p-3 rounded-lg border border-cyan-700/40 text-xs font-mono space-y-2">
+                <div className="text-cyan-400 font-semibold">v5.4 Substrate Status</div>
+                <div className="text-slate-400 text-[10px] leading-relaxed">
+                  Fetches v5.4 constants, 6 canonical physics predictions, and
+                  all 7 registered physics domain statuses from the substrate.
+                </div>
+                <button
+                  onClick={handleFetchV54}
+                  disabled={v54Loading}
+                  className="w-full py-2 bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/30 rounded transition-colors disabled:opacity-50"
+                >
+                  {v54Loading ? 'Fetching…' : 'Fetch v5.4 Status'}
+                </button>
+
+                {v54Constants?.error && (
+                  <div className="text-red-400">✗ {v54Constants.error}</div>
+                )}
+
+                {v54Constants?.constants && (
+                  <div className="space-y-1">
+                    <div className="text-cyan-300 font-semibold border-t border-slate-800 pt-1">Constants</div>
+                    {Object.entries(v54Constants.constants).slice(0, 6).map(([k, v]: [string, any]) => (
+                      <div key={k} className="flex justify-between text-[10px]">
+                        <span className="text-slate-500">{k}</span>
+                        <span className="text-cyan-200">{typeof v === 'number' ? v.toPrecision(8) : String(v)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {v54Predictions?.predictions && (
+                  <div className="space-y-1">
+                    <div className="text-cyan-300 font-semibold border-t border-slate-800 pt-1">
+                      Physics Predictions {v54Predictions.all_in_budget ? '✓' : '✗'}
+                    </div>
+                    {Object.entries(v54Predictions.predictions).map(([k, v]: [string, any]) => (
+                      <div key={k} className="flex justify-between text-[10px]">
+                        <span className="text-slate-500">{k}</span>
+                        <span className={v.in_budget ? 'text-emerald-300' : 'text-red-300'}>
+                          {v.error_pct.toFixed(4)}% / {v.budget_pct}%
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {v54Registry?.domains && (
+                  <div className="space-y-1">
+                    <div className="text-cyan-300 font-semibold border-t border-slate-800 pt-1">
+                      Registry ({v54Registry.domain_count} domains) {v54Registry.overall === 'GREEN' ? '✓' : '⚠'}
+                    </div>
+                    {Object.entries(v54Registry.domains).map(([name, d]: [string, any]) => (
+                      <div key={name} className="flex justify-between text-[10px]">
+                        <span className="text-slate-500">{name}</span>
+                        <span className={d.status === 'GREEN' ? 'text-emerald-300' : d.status === 'YELLOW' ? 'text-yellow-300' : 'text-red-300'}>
+                          {d.status}
+                        </span>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
