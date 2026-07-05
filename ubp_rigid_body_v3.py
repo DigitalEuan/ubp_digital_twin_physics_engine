@@ -1,6 +1,6 @@
 """
 ================================================================================
-UBP RIGID BODY SYSTEM v3.1 — Topological Torque + Pantograph Tax
+UBP RIGID BODY SYSTEM v3.1 — Topological Torque + Pantograph Tax (v5.4 ALIGNED)
 ================================================================================
 Rigid body mechanics with moment of inertia derived from LAW_TOPOLOGICAL_TORQUE_001.
 
@@ -27,6 +27,14 @@ LAW_VOLUMETRIC_REBATE_001: Rebate = 1 - (Compactness / 13)
   Compact shapes (spheres, cubes) have lower rotational inertia than elongated ones.
 
 LAW_PANTOGRAPH_SCALING_001: Large structures pay a scaling tax on rotation.
+
+v5.4 ALIGNMENT (Phase 5):
+  • KISSING now sourced from substrate (KISSING_NUMBER constant) instead
+    of being hardcoded as D('196560') locally.
+  • Imports v5.4 topological shear constants (SHEAR_1, SHEAR_2) for use
+    in future torque correction terms (extension point for future development).
+  • Registers itself as the "core_rigid_body" domain in the physics registry,
+    so validate_substrate() picks up its validation automatically.
 ================================================================================
 """
 
@@ -46,6 +54,10 @@ from ubp_entity_v3 import (
 from ubp_engine_substrate import (
     Y_CONSTANT, SINK_L, PI, calculate_nrci, hamming_distance,
     calculate_pantograph_tax, calculate_symmetry_tax,
+    KISSING_NUMBER,  # v5.4: sourced from substrate (was hardcoded D('196560'))
+    # v5.4 NEW: Topological shear constants (extension point for future
+    # torque correction terms)
+    SHEAR_1, SHEAR_2,
 )
 # UBP 50-term π for angle conversions (replaces math.pi)
 _PI_FLOAT: float = float(PI)
@@ -59,8 +71,8 @@ _SINK_L = to_decimal(SINK_L)
 _C_DRAG = _Y * _Y  # Angular damping coefficient = Y² (The Shaving)
 _V_REST = _SINK_L / D('100')  # Rest threshold
 
-# Kissing Number (Leech Lattice first shell)
-_KISSING = D('196560')
+# v5.4: KISSING sourced from substrate — single source of truth
+_KISSING = to_decimal(KISSING_NUMBER)  # = D('196560')
 
 # ---------------------------------------------------------------------------
 # TORQUE RESULT
@@ -460,3 +472,66 @@ class UBPRigidBodyEngineV3:
     def get_state(self) -> List[Dict[str, Any]]:
         """Return the current state of all constraints."""
         return [c.to_dict() for c in self.constraints]
+
+
+# ---------------------------------------------------------------------------
+# v5.4 NEW: Register as a physics domain (Phase 5 extension point)
+# ---------------------------------------------------------------------------
+try:
+    from ubp_physics_registry import PhysicsDomain, register_domain as _register_domain
+
+    def _core_rigid_body_validate() -> dict:
+        """Validate the core rigid body (Topological Torque) constants.
+
+        Checks that:
+          • KISSING matches substrate
+          • C_DRAG = Y² (The Shaving)
+          • V_REST = SINK_L / 100
+          • All constants are positive
+          • Shear constants present and in expected range
+        """
+        results = {}
+        results['kissing_matches_substrate'] = int(_KISSING) == KISSING_NUMBER
+        results['c_drag_formula'] = abs(
+            float(_C_DRAG) - float(_Y * _Y)
+        ) < 1e-30
+        results['v_rest_formula'] = abs(
+            float(_V_REST) - float(_SINK_L / D('100'))
+        ) < 1e-30
+        results['c_drag_positive'] = float(_C_DRAG) > 0
+        results['v_rest_positive'] = float(_V_REST) > 0
+        results['shear_1_in_range'] = 1.04 < float(SHEAR_1) < 1.06
+        results['shear_2_in_range'] = 1.04 < float(SHEAR_2) < 1.07
+
+        all_ok = all(results.values())
+        results['status'] = 'GREEN' if all_ok else 'YELLOW'
+        return results
+
+    _register_domain(PhysicsDomain(
+        name='core_rigid_body',
+        version='3.1-v5.4',
+        description='UBP rigid body system — Topological Torque moment of inertia, '
+                    'Volumetric Rebate, Pantograph Tax, Hamming angular damping.',
+        constants={
+            'Y_CONSTANT':     Y_CONSTANT,
+            'SINK_L':         SINK_L,
+            'PI':             PI,
+            'KISSING_NUMBER': KISSING_NUMBER,
+            'SHEAR_1':        SHEAR_1,
+            'SHEAR_2':        SHEAR_2,
+            # Rigid-body-specific Decimal constants (as floats for serialization)
+            'C_DRAG':         float(_C_DRAG),
+            'V_REST':         float(_V_REST),
+        },
+        engines={},  # UBPRigidBodyEngineV3 is a class, not a singleton
+        formulas={
+            # Topological Torque moment of inertia formula
+            # I = mass × (w² + h² + d²) / 12 × (1 + NRCI) × Volumetric_Rebate
+            'angular_damping_coefficient': lambda: Y_CONSTANT * Y_CONSTANT,  # Y²
+            'rest_threshold':              lambda: SINK_L / Fraction(100),
+        },
+        validate=_core_rigid_body_validate,
+    ), replace=True)
+    del _register_domain  # clean namespace
+except ImportError:
+    pass  # ubp_physics_registry not available — silently skip registration

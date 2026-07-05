@@ -1,6 +1,6 @@
 """
-ubp_mechanics_v4.py — UBP Deterministic Mechanics Layer v4.0
-=============================================================
+ubp_mechanics_v4.py — UBP Deterministic Mechanics Layer v4.0 (v5.4 ALIGNED)
+=============================================================================
 Implements the four foundational UBP mechanics described in the README
 and the UBP Knowledge Base:
 
@@ -30,10 +30,22 @@ and the UBP Knowledge Base:
 
   5. HYBRID STEREOSCOPY SIGMA  (LAW_HYBRID_STEREOSCOPY_002)
      The 29/24 Sigma ratio is exposed as a constant for use in particle
-     mass calculations.
+     mass calculations. v5.4 NOTE: SIGMA now sourced from substrate
+     (SINK_SIGMA = PARTICLE_PHYSICS.sigma = Fraction(29, 24)) — no longer
+     redefined locally.
+
+v5.4 ALIGNMENT (Phase 4):
+  • Constants now imported from ubp_engine_substrate (single source of truth)
+    instead of bypassing to UBPUltimateSubstrate.get_v6_constants().
+  • SIGMA sourced from substrate (was Fraction(29, 24) redefined locally).
+  • Topological shear constants (SHEAR_1, SHEAR_2) and v5.4 physics
+    predictions (MUON_ELECTRON_RATIO, GRAVITATIONAL_G, etc.) are now
+    available for use in collision/synthesis strength calculations.
+  • Registers itself as the "core_mechanics" domain in the physics
+    registry, so validate_substrate() picks it up automatically.
 
 Author : UBP Digital Twin Physics Engine Project
-Version: 4.0
+Version: 4.0 (v5.4 aligned, July 2026)
 """
 
 from __future__ import annotations
@@ -44,31 +56,33 @@ from fractions import Fraction
 from typing import Dict, List, Optional, Tuple
 
 # ---------------------------------------------------------------------------
-# Import UBP core engines (singletons already initialised in core module)
+# Import UBP core engines and constants from the substrate (single source of truth)
 # ---------------------------------------------------------------------------
-from ubp_core_v5_3_merged import (
+# Phase 4: previously imported from ubp_unified_v5 directly via
+# UBPUltimateSubstrate.get_v6_constants(). Now sourced from
+# ubp_engine_substrate so every dependent module uses the SAME constants.
+from ubp_unified_v5 import (
     GOLAY_ENGINE,
     LEECH_ENGINE,
     BinaryLinearAlgebra,
-    UBPUltimateSubstrate,
+)
+from ubp_engine_substrate import (
+    Y_CONSTANT as Y,        # Ontological constant ≈ 0.26468 (Fraction)
+    PI,                     # π (50-term series, Fraction)
+    Y_INV,                  # 1/Y ≈ 3.7783 (Fraction)
+    SINK_L,                 # 13D Sink Leakage L = w/13 ≈ 0.0629 (Fraction)
+    SINK_SIGMA as SIGMA,    # Baryonic ratio σ = 29/24 (Fraction, sourced from PARTICLE_PHYSICS.sigma)
+    KISSING_NUMBER as KISSING,  # Leech Lattice kissing number = 196560
+    # v5.4 NEW: Topological shear and physics-prediction constants
+    SHEAR_1,                # 1 + 3·L·Y ≈ 1.04992 (Fraction)
+    SHEAR_2,                # 1 + 3·L·Y + 12·(L·Y)² ≈ 1.05324 (Fraction)
+    MUON_ELECTRON_RATIO,    # 169/w ≈ 206.7075 (Fraction)
+    GRAVITATIONAL_G,        # (39/29)·Y^18/w ≈ 6.683e-11 (Fraction, SI)
 )
 
 # ---------------------------------------------------------------------------
-# UBP CONSTANTS  (all Fraction — float-free)
-# ---------------------------------------------------------------------------
-_CONSTS = UBPUltimateSubstrate.get_v6_constants()  # v6.3.1: canonical constants incl. SINK_L
-Y: Fraction = _CONSTS['Y']               # Ontological constant ≈ 0.26468
-PI: Fraction = _CONSTS['PI']             # π (50-term series)
-Y_INV: Fraction = _CONSTS['Y_INV']       # 1/Y ≈ 3.7783
-
-# Sink leakage L = WOBBLE/13 = (PI*PHI*E mod 1) / 13  (LAW_13D_SINK_001 v6.3.1)
-# Canonical derivation from get_v6_constants(); WOBBLE ≈ 0.8176, L ≈ 0.0629
-SINK_L: Fraction = _CONSTS['SINK_L']
-
-# Kissing number of the Leech Lattice
-KISSING: int = 196_560
-
 # Topological Buffer thresholds  (LAW_TOPOLOGICAL_BUFFER_001 + UBP-Py v2.1)
+# ---------------------------------------------------------------------------
 # NRCI_REFLEX_THRESHOLD = 6/10 = 0.60  — canonical UBP reflex prune line
 #   (from ubppy.py: vm.reflex(threshold=Fraction(6, 10)))
 # NRCI_NOISE_FLOOR = Y/Y_INV = Y² ≈ 0.0700 above dissolution
@@ -90,9 +104,6 @@ PHI_VEC: List[int] = [
     1, 0, 0, 0, 1, 1, 0, 1,
 ]
 PHI_ORBIT_PERIOD: int = 1_953           # Closed orbit length
-
-# Hybrid Stereoscopy Sigma  (LAW_HYBRID_STEREOSCOPY_002)
-SIGMA: Fraction = Fraction(29, 24)      # Baryonic Base / Spatial Core ratio
 
 # Symmetry Tax scaling for NRCI (from UBPObject.get_nrci formula)
 NRCI_TAX_SCALE: Fraction = Fraction(1, 10)
@@ -743,6 +754,77 @@ class UBPMechanicsV4:
 # MODULE-LEVEL SINGLETON  (import this in other modules)
 # ---------------------------------------------------------------------------
 UBP_MECHANICS = UBPMechanicsV4()
+
+
+# ---------------------------------------------------------------------------
+# v5.4 NEW: Register as a physics domain (Phase 4 extension point)
+# ---------------------------------------------------------------------------
+# This registers the mechanics layer as a "core_mechanics" domain in the
+# physics registry. validate_substrate() will now automatically pick up
+# this domain's validation results.
+#
+# The registration is wrapped in try/except so that import failures of
+# ubp_physics_registry (e.g. during early bootstrap or test isolation) do
+# not break the mechanics module.
+try:
+    from ubp_physics_registry import PhysicsDomain, register_domain as _register_domain
+
+    def _core_mechanics_validate() -> dict:
+        """Validate the core mechanics layer.
+
+        Checks that:
+          • The UBP_MECHANICS singleton is instantiated
+          • All NRCI thresholds are within canonical ranges
+          • SIGMA matches PARTICLE_PHYSICS.sigma (single source of truth)
+          • Phi-Orbit period is the documented 1953
+        """
+        from ubp_engine_substrate import PARTICLE_PHYSICS
+        results = {}
+        # 1. Singleton live
+        results['singleton_loaded'] = UBP_MECHANICS is not None
+        # 2. SIGMA matches substrate
+        sigma_match = SIGMA == PARTICLE_PHYSICS.sigma
+        results['sigma_matches_substrate'] = sigma_match
+        # 3. NRCI thresholds in range
+        results['thresholds_in_range'] = (
+            0.0 < NRCI_DISSOLUTION_THRESHOLD < NRCI_NOISE_FLOOR
+            < NRCI_AVG_TARGET < NRCI_COHERENT_THRESHOLD < 1.0
+        )
+        # 4. Phi-Orbit period canonical
+        results['phi_orbit_period_canonical'] = PHI_ORBIT_PERIOD == 1953
+        # 5. KISSING matches Leech
+        results['kissing_number_canonical'] = KISSING == 196560
+
+        all_ok = all(results.values())
+        results['status'] = 'GREEN' if all_ok else 'YELLOW'
+        return results
+
+    _register_domain(PhysicsDomain(
+        name='core_mechanics',
+        version='4.0-v5.4',
+        description='UBP deterministic mechanics layer v4.0 — Phi-Orbit, Synthesis '
+                    'Collision, NRCI Health, Leech Addressing, Hybrid Stereoscopy.',
+        constants={
+            'Y':       Y,
+            'PI':      PI,
+            'Y_INV':   Y_INV,
+            'SINK_L':  SINK_L,
+            'SIGMA':   SIGMA,
+            'SHEAR_1': SHEAR_1,
+            'SHEAR_2': SHEAR_2,
+        },
+        engines={
+            'phi_orbit':         UBP_MECHANICS.phi_orbit if hasattr(UBP_MECHANICS, 'phi_orbit') else None,
+            'synthesis':         UBP_MECHANICS.synthesis if hasattr(UBP_MECHANICS, 'synthesis') else None,
+            'sink':              UBP_MECHANICS.sink if hasattr(UBP_MECHANICS, 'sink') else None,
+            'lattice_addressing': UBP_MECHANICS.addressing if hasattr(UBP_MECHANICS, 'addressing') else None,
+        },
+        formulas={},  # Mechanics layer has no constant-prediction formulas
+        validate=_core_mechanics_validate,
+    ), replace=True)
+    del _register_domain  # clean namespace
+except ImportError:
+    pass  # ubp_physics_registry not available — silently skip registration
 
 
 # ---------------------------------------------------------------------------

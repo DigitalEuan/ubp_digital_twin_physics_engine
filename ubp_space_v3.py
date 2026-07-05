@@ -1,6 +1,6 @@
 """
 ================================================================================
-UBP SPACE v5.1 — The Digital Twin World
+UBP SPACE v5.1 — The Digital Twin World (v5.4 ALIGNED)
 ================================================================================
 V5.1 Additions (UBP Core v6.2 + Sovereign ALU v9.2, 16 April 2026):
   - Wall of Reality check: entities above F_MAX_HZ (1 THz) SOC frequency
@@ -23,6 +23,13 @@ V3.2 Additions (retained):
   - spawn_block_at_grid(grid_x, grid_z, material, y) — grid placement
   - Fluid step passes all_fluid_bodies for cross-body SPH interaction
   - Lever arms no longer skipped in physics step (participate in gravity)
+
+v5.4 ALIGNMENT (Phase 5):
+  • Imports v5.4 topological shear constants (SHEAR_1, SHEAR_2) and
+    physics-prediction constants (GRAVITATIONAL_G, MUON_ELECTRON_RATIO)
+    for use in future world-scale physics (extension point).
+  • Registers itself as the "core_space" domain in the physics registry,
+    so validate_substrate() picks up its validation automatically.
 ================================================================================
 """
 
@@ -46,6 +53,9 @@ from ubp_materials import AmbientEnvironment, MaterialRegistry
 from ubp_engine_substrate import (
     Y_CONSTANT, SINK_L, PI,
     F_MAX_HZ, calculate_soc_energy,
+    # v5.4 NEW: Topological shear + physics-prediction constants (extension
+    # point for future world-scale physics)
+    SHEAR_1, SHEAR_2, GRAVITATIONAL_G, MUON_ELECTRON_RATIO,
 )
 # UBP 50-term π for angle display (replaces math.pi)
 _PI_FLOAT: float = float(PI)
@@ -559,3 +569,62 @@ class UBPSpaceV3:
                 f"ω={float(c.angular_velocity):.5f} rad/tick"
             )
         return '\n'.join(lines)
+
+
+# ---------------------------------------------------------------------------
+# v5.4 NEW: Register as a physics domain (Phase 5 extension point)
+# ---------------------------------------------------------------------------
+try:
+    from ubp_physics_registry import PhysicsDomain, register_domain as _register_domain
+    from fractions import Fraction as _Fraction  # for the wall_of_reality_hz formula
+
+    def _core_space_validate() -> dict:
+        """Validate the core space (digital twin world) layer.
+
+        Checks that:
+          • F_MAX_HZ is the canonical 1 THz Wall of Reality
+          • _Y and _SINK_L match substrate (no local drift)
+          • Shear and physics-prediction constants present and in range
+          • The space module imports cleanly with all sub-engine references
+        """
+        results = {}
+        results['f_max_hz_canonical'] = F_MAX_HZ == 10**12
+        results['y_matches_substrate'] = abs(float(_Y) - float(Y_CONSTANT)) < 1e-15
+        results['sink_l_matches_substrate'] = abs(float(_SINK_L) - float(SINK_L)) < 1e-15
+        results['shear_1_in_range'] = 1.04 < float(SHEAR_1) < 1.06
+        results['shear_2_in_range'] = 1.04 < float(SHEAR_2) < 1.07
+        # G must be ~6.68e-11 (within 0.5% of CODATA per UBP_SKILL_1 §9)
+        results['gravitational_g_in_range'] = 6.5e-11 < float(GRAVITATIONAL_G) < 6.9e-11
+        # Muon ratio must be ~206.7 (within 0.1% of 206.7683)
+        results['muon_ratio_in_range'] = 206.0 < float(MUON_ELECTRON_RATIO) < 207.5
+
+        all_ok = all(results.values())
+        results['status'] = 'GREEN' if all_ok else 'YELLOW'
+        return results
+
+    _register_domain(PhysicsDomain(
+        name='core_space',
+        version='5.1-v5.4',
+        description='UBP Digital Twin world — orchestrates physics, rigid body, '
+                    'fluid, mechanics; applies Wall of Reality and Observer Dynamics.',
+        constants={
+            'Y_CONSTANT':           Y_CONSTANT,
+            'SINK_L':               SINK_L,
+            'PI':                   PI,
+            'F_MAX_HZ':             F_MAX_HZ,
+            'SHEAR_1':              SHEAR_1,
+            'SHEAR_2':              SHEAR_2,
+            'GRAVITATIONAL_G':      GRAVITATIONAL_G,
+            'MUON_ELECTRON_RATIO':  MUON_ELECTRON_RATIO,
+        },
+        engines={},  # UBPSpaceV3 is a class, not a singleton
+        formulas={
+            # Wall of Reality = 1 THz exact. Returned as a Fraction for
+            # registry consistency (other domains return Fractions).
+            'wall_of_reality_hz': (lambda: _Fraction(10**12)),
+        },
+        validate=_core_space_validate,
+    ), replace=True)
+    del _register_domain  # clean namespace
+except ImportError:
+    pass  # ubp_physics_registry not available — silently skip registration

@@ -1,6 +1,6 @@
 """
 ================================================================================
-UBP PHYSICS ENGINE v4.0
+UBP PHYSICS ENGINE v4.0 (v5.4 ALIGNED)
 ================================================================================
 V4.0 Upgrades (built on V3.2 foundation):
   1. SYNTHESIS COLLISION EVENT — on every entity-entity collision, the
@@ -29,6 +29,13 @@ V3.2 Fixes (retained):
 
   4. LEVER ARM PHYSICS — LEVER_ARM entities are no longer skipped. They
      participate in full physics (gravity, collision, support detection).
+
+v5.4 ALIGNMENT (Phase 4):
+  • Imports v5.4 physics-prediction constants (GRAVITATIONAL_G, SHEAR_1,
+    SHEAR_2, MUON_ELECTRON_RATIO, etc.) from ubp_engine_substrate so they
+    are available to physics computations without re-derivation.
+  • Registers itself as the "core_physics" domain in the physics registry,
+    so validate_substrate() picks up its validation automatically.
 ================================================================================
 """
 
@@ -48,6 +55,10 @@ from ubp_engine_substrate import (
     Y_CONSTANT, Y_INV, SINK_L, G_EARTH_MS2,
     hamming_distance, calculate_nrci, calculate_symmetry_tax,
     BOLTZMANN_K,
+    # v5.4 NEW: Topological shear and physics-prediction constants
+    SHEAR_1, SHEAR_2,
+    MUON_ELECTRON_RATIO, STRONG_COUPLING_ALPHA_S, ALPHA_CUBED,
+    HUBBLE_H0, OMEGA_K_BASE, GRAVITATIONAL_G,
 )
 from ubp_materials import AmbientEnvironment
 
@@ -571,3 +582,101 @@ class UBPPhysicsEngineV3:
             dissolution_pending=dissolution,
             synthesis_events=syn_events,
         )
+
+
+# ---------------------------------------------------------------------------
+# v5.4 NEW: Register as a physics domain (Phase 4 extension point)
+# ---------------------------------------------------------------------------
+# Registers the physics engine as the "core_physics" domain in the physics
+# registry. validate_substrate() will now automatically pick up this
+# domain's validation results, which include live checks of every v5.4
+# canonical formula prediction (muon, alpha_s, H0, Omega_k, G, alpha^3).
+try:
+    from ubp_physics_registry import PhysicsDomain, register_domain as _register_domain
+
+    def _core_physics_validate() -> dict:
+        """Validate the core physics engine and its v5.4 constant predictions.
+
+        Checks that:
+          • All v5.4 physics-prediction constants are within their documented
+            error budgets (UBP_SKILL_1 §9 canonical formula table)
+          • Decimal-converted substrate constants still match (no precision loss)
+          • Physics engine module loads with v5.4 imports
+        """
+        results = {}
+
+        # 1. v5.4 canonical formula predictions within budget
+        #    (mirrors ubp_engine_substrate.validate_substrate's v54_physics_predictions block)
+        targets_and_budgets = {
+            'muon_electron_ratio':     (MUON_ELECTRON_RATIO,     206.7683,                                            0.10),
+            'strong_coupling_alpha_s': (STRONG_COUPLING_ALPHA_S, 0.1181,                                              0.50),
+            'alpha_cubed':             (ALPHA_CUBED,             float(Fraction(1000, 137036) ** 3),                 0.50),
+            'hubble_H0':               (HUBBLE_H0,               70.0,                                                1.00),
+            'omega_k_base':            (OMEGA_K_BASE,            7.27e-4,                                             1.00),
+            'gravitational_G':         (GRAVITATIONAL_G,         6.6743e-11,                                          0.50),
+        }
+        for name, (pred, target, budget) in targets_and_budgets.items():
+            pred_f = float(pred)
+            err = abs(pred_f - target) / target * 100
+            results[name] = {
+                'predicted': pred_f,
+                'target':    target,
+                'error_pct': err,
+                'budget':    budget,
+                'in_budget': err < budget,
+            }
+
+        # 2. Decimal-converted substrate constants match (no precision loss
+        #    in the to_decimal() conversion used for Decimal physics math)
+        _Y_dec = to_decimal(Y_CONSTANT)
+        _SINK_L_dec = to_decimal(SINK_L)
+        results['decimal_y_match'] = abs(float(_Y_dec) - float(Y_CONSTANT)) < 1e-20
+        results['decimal_sink_l_match'] = abs(float(_SINK_L_dec) - float(SINK_L)) < 1e-20
+
+        # 3. Shear constants present and in expected range
+        results['shear_1_in_range'] = 1.04 < float(SHEAR_1) < 1.06
+        results['shear_2_in_range'] = 1.04 < float(SHEAR_2) < 1.07
+
+        # Aggregate
+        formula_ok = all(r['in_budget'] for r in results.values()
+                         if isinstance(r, dict) and 'in_budget' in r)
+        all_ok = formula_ok and results['decimal_y_match'] and results['decimal_sink_l_match'] \
+                 and results['shear_1_in_range'] and results['shear_2_in_range']
+        results['status'] = 'GREEN' if all_ok else 'YELLOW'
+        return results
+
+    _register_domain(PhysicsDomain(
+        name='core_physics',
+        version='4.0-v5.4',
+        description='UBP physics engine v4.0 — continuous collision detection, '
+                    'overlap resolution, kinetic-to-thermal conversion, lever-arm '
+                    'physics. Carries the v5.4 canonical formula predictions.',
+        constants={
+            'Y_CONSTANT':           Y_CONSTANT,
+            'Y_INV':                Y_INV,
+            'SINK_L':               SINK_L,
+            'G_EARTH_MS2':          G_EARTH_MS2,
+            'SHEAR_1':              SHEAR_1,
+            'SHEAR_2':              SHEAR_2,
+            'MUON_ELECTRON_RATIO':  MUON_ELECTRON_RATIO,
+            'STRONG_COUPLING_ALPHA_S': STRONG_COUPLING_ALPHA_S,
+            'ALPHA_CUBED':          ALPHA_CUBED,
+            'HUBBLE_H0':            HUBBLE_H0,
+            'OMEGA_K_BASE':         OMEGA_K_BASE,
+            'GRAVITATIONAL_G':      GRAVITATIONAL_G,
+        },
+        engines={},  # Physics engine is a class, not a singleton — leave empty
+        formulas={
+            # Each formula returns the v5.4-canonical Fraction prediction
+            'muon_electron_ratio':     lambda: MUON_ELECTRON_RATIO,
+            'strong_coupling_alpha_s': lambda: STRONG_COUPLING_ALPHA_S,
+            'alpha_cubed':             lambda: ALPHA_CUBED,
+            'hubble_H0':               lambda: HUBBLE_H0,
+            'omega_k_base':            lambda: OMEGA_K_BASE,
+            'gravitational_G':         lambda: GRAVITATIONAL_G,
+        },
+        validate=_core_physics_validate,
+    ), replace=True)
+    del _register_domain  # clean namespace
+except ImportError:
+    pass  # ubp_physics_registry not available — silently skip registration

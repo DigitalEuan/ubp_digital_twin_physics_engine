@@ -1,13 +1,20 @@
 """
-UBP TGIC ENGINE v6.2 (Relational Master Edition)
+UBP TGIC ENGINE v6.2 (Relational Master Edition) — v5.4 ALIGNED
 ================================================
-The definitive TGIC implementation. 
+The definitive TGIC implementation.
 Integrates all 9 internal interactions + Cross-Node Relational Gravity.
 
 STANDARDS:
 - Internal Harmony: 9 Pairwise Interactions (X, Y, Z blocks)
 - External Harmony: Relational Pull (Hamming-weighted attraction)
 - Hardware: Leech Tax + Coherence Pressure (d > 3 penalty)
+
+v5.4 ALIGNMENT NOTE (Phase 3):
+  This module is byte-for-byte equivalent to the v5.4 reference
+  ubp_tgic_engine.py (only a trailing newline differs). The import
+  path was updated in Phase 1 to source GOLAY_ENGINE / LEECH_ENGINE /
+  BinaryLinearAlgebra / SUBSTRATE from ubp_unified_v5 (the new v5.4
+  backbone). No further changes are required.
 
 Author: E R A Craig & UBP Research Cortex v4.2.7
 Date: 03 March 2026
@@ -19,7 +26,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Tuple, Optional, Any
 
 try:
-    from ubp_core_v5_3_merged import GOLAY_ENGINE, LEECH_ENGINE, BinaryLinearAlgebra, SUBSTRATE
+    from ubp_unified_v5 import GOLAY_ENGINE, LEECH_ENGINE, BinaryLinearAlgebra, SUBSTRATE
     CORE_AVAILABLE = True
     CONST = SUBSTRATE.get_constants(50)
 except ImportError:

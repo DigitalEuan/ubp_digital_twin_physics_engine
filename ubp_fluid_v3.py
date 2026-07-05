@@ -1,6 +1,6 @@
 """
 ================================================================================
-UBP FLUID SIMULATION v3.1 — UBP-SPH
+UBP FLUID SIMULATION v3.1 — UBP-SPH (v5.4 ALIGNED)
 ================================================================================
 Smoothed Particle Hydrodynamics (SPH) with all scalars derived from UBP laws.
 
@@ -26,6 +26,15 @@ V2 used empirical multipliers (0.001, 10, 5). V3 derives all scalars:
   SMOOTHING_RADIUS = Y_INV / 8
     Source: Y_INV = π + 2/π ≈ 3.778 (the Observer Fixed Point)
     The smoothing radius is 1/8 of the Observer Fixed Point.
+
+v5.4 ALIGNMENT (Phase 5):
+  • KISSING now sourced from substrate (KISSING_NUMBER constant) instead
+    of being hardcoded as D('196560') locally.
+  • Imports v5.4 topological shear constants (SHEAR_1, SHEAR_2) for use
+    in future fluid-pressure correction terms (currently available but
+    not yet applied — left as an extension point for future development).
+  • Registers itself as the "core_fluid" domain in the physics registry,
+    so validate_substrate() picks up its validation automatically.
 ================================================================================
 """
 
@@ -44,7 +53,11 @@ from ubp_entity_v3 import (
 )
 from ubp_engine_substrate import (
     Y_CONSTANT, Y_INV, SINK_L, G_EARTH_MS2, PI,
+    KISSING_NUMBER,  # v5.4: sourced from substrate (was hardcoded D('196560'))
     calculate_nrci, hamming_distance,
+    # v5.4 NEW: Topological shear constants (extension point for future
+    # fluid-pressure correction terms)
+    SHEAR_1, SHEAR_2,
 )
 # UBP 50-term π (exact rational) converted to float for SPH kernel arithmetic
 # This replaces math.pi throughout the SPH kernels to use the UBP substrate π.
@@ -59,7 +72,8 @@ _Y = to_decimal(Y_CONSTANT)
 _Y_INV = to_decimal(Y_INV)
 _SINK_L = to_decimal(SINK_L)
 _G_EARTH = to_decimal(G_EARTH_MS2)
-_KISSING = D('196560')
+# v5.4: KISSING sourced from substrate — single source of truth
+_KISSING = to_decimal(KISSING_NUMBER)  # = D('196560')
 
 # Gravity per tick²
 _G_PER_TICK_SQ: Decimal = _G_EARTH / D('3600') * _Y
@@ -505,3 +519,83 @@ class FluidBodyV3:
         if not self.particles:
             return 0.0
         return max(p.y for p in self.particles)
+
+
+# ---------------------------------------------------------------------------
+# v5.4 NEW: Register as a physics domain (Phase 5 extension point)
+# ---------------------------------------------------------------------------
+# Registers the fluid simulation as the "core_fluid" domain in the physics
+# registry. validate_substrate() will now automatically pick up this
+# domain's validation results.
+try:
+    from ubp_physics_registry import PhysicsDomain, register_domain as _register_domain
+
+    def _core_fluid_validate() -> dict:
+        """Validate the core fluid (SPH) simulation constants.
+
+        Checks that:
+          • KISSING matches substrate (no local drift)
+          • All SPH constants are positive and finite
+          • Smoothing radius matches Y_INV/8
+          • Pressure stiffness matches SINK_L × 24 / KISSING
+          • Viscosity matches Y/96
+          • Surface tension matches Y²/KISSING
+        """
+        results = {}
+        results['kissing_matches_substrate'] = int(_KISSING) == KISSING_NUMBER
+        results['smoothing_radius_positive'] = float(SMOOTHING_RADIUS) > 0
+        results['pressure_stiffness_positive'] = float(PRESSURE_STIFFNESS) > 0
+        results['viscosity_positive'] = float(VISCOSITY) > 0
+        results['surface_tension_positive'] = float(SURFACE_TENSION) > 0
+        results['rest_density_positive'] = float(REST_DENSITY) > 0
+        # Verify the canonical SPH formulas
+        results['smoothing_radius_formula'] = abs(
+            float(SMOOTHING_RADIUS) - float(_Y_INV / D('8'))
+        ) < 1e-30
+        results['pressure_stiffness_formula'] = abs(
+            float(PRESSURE_STIFFNESS) - float(_SINK_L * D('24') / _KISSING)
+        ) < 1e-30
+        results['viscosity_formula'] = abs(
+            float(VISCOSITY) - float(_Y / D('96'))
+        ) < 1e-30
+        results['surface_tension_formula'] = abs(
+            float(SURFACE_TENSION) - float(_Y * _Y / _KISSING)
+        ) < 1e-30
+
+        all_ok = all(results.values())
+        results['status'] = 'GREEN' if all_ok else 'YELLOW'
+        return results
+
+    _register_domain(PhysicsDomain(
+        name='core_fluid',
+        version='3.1-v5.4',
+        description='UBP-SPH fluid simulation — Pressure stiffness, viscosity, '
+                    'surface tension, smoothing radius all derived from UBP laws.',
+        constants={
+            'Y_CONSTANT':         Y_CONSTANT,
+            'Y_INV':              Y_INV,
+            'SINK_L':             SINK_L,
+            'G_EARTH_MS2':        G_EARTH_MS2,
+            'KISSING_NUMBER':     KISSING_NUMBER,
+            'SHEAR_1':            SHEAR_1,
+            'SHEAR_2':            SHEAR_2,
+            # SPH-specific Decimal constants (as floats for registry serialization)
+            'SMOOTHING_RADIUS':    float(SMOOTHING_RADIUS),
+            'PRESSURE_STIFFNESS':  float(PRESSURE_STIFFNESS),
+            'VISCOSITY':           float(VISCOSITY),
+            'SURFACE_TENSION':     float(SURFACE_TENSION),
+            'REST_DENSITY':        float(REST_DENSITY),
+        },
+        engines={},  # FluidBodyV3 is a class, not a singleton — leave empty
+        formulas={
+            # Each formula returns the UBP-derived Fraction/Decimal prediction
+            'smoothing_radius':   lambda: Fraction(int(_Y_INV * D('1000000')), 8 * 1000000),  # Y_INV/8
+            'pressure_stiffness': lambda: SINK_L * Fraction(24) / Fraction(KISSING_NUMBER),
+            'viscosity':          lambda: Y_CONSTANT / Fraction(96),
+            'surface_tension':    lambda: (Y_CONSTANT * Y_CONSTANT) / Fraction(KISSING_NUMBER),
+        },
+        validate=_core_fluid_validate,
+    ), replace=True)
+    del _register_domain  # clean namespace
+except ImportError:
+    pass  # ubp_physics_registry not available — silently skip registration

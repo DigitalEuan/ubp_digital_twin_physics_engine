@@ -1,6 +1,6 @@
 """
 ================================================================================
-UBP ENTITY SYSTEM v5.1
+UBP ENTITY SYSTEM v5.1 (v5.4 ALIGNED)
 ================================================================================
 Every object in the V5.1 simulation is a UBPEntityV3. Unlike V2's monolithic
 vectors, V3/V4/V5 entities are built from composite materials (UBP KB elements).
@@ -29,8 +29,16 @@ Key upgrades from V3 (retained from V4):
   7. Composite material system, Thermal state, Topological Torque MoI
   8. Volumetric Rebate, Continuous Decimal positions, Three.js serialisation
 
+v5.4 ALIGNMENT (Phase 6):
+  • KISSING now sourced from substrate (KISSING_NUMBER constant) instead
+    of being hardcoded as D('196560') locally.
+  • Imports v5.4 topological shear constants (SHEAR_1, SHEAR_2) for use
+    in future entity-level torque/thermal correction terms (extension point).
+  • Registers itself as the "core_entity" domain in the physics registry,
+    so validate_substrate() picks up its validation automatically.
+
 Author: E R A Craig, New Zealand
-Date: 16 April 2026
+Date: 16 April 2026 (v5.4 alignment July 2026)
 ================================================================================
 """
 
@@ -68,11 +76,15 @@ def to_decimal(x) -> Decimal:
 from ubp_engine_substrate import (
     Y_CONSTANT, Y_INV, PI, SINK_L, SINK_L_STEREO, G_EARTH_MS2,
     CONSCIOUS_THRESHOLD, F_MAX_HZ, NOUMENAL_VOLUME,
+    KISSING_NUMBER,  # v5.4: sourced from substrate (was hardcoded D('196560'))
     calculate_symmetry_tax, calculate_nrci, hamming_distance,
     vector_from_math_dna, coherence_snap, encode_to_golay,
     _construction_tax_from_dna, GOLAY_BLOCK_LENGTH,
     conscious_read, calculate_soc_energy, calculate_ter_score,
     gray_code_encode_state, calculate_dqi, calculate_pantograph_tax,
+    # v5.4 NEW: Topological shear constants (extension point for future
+    # entity-level torque/thermal correction terms)
+    SHEAR_1, SHEAR_2,
 )
 from ubp_materials import MaterialRecipe, MaterialRegistry, AmbientEnvironment
 
@@ -90,8 +102,8 @@ _Y_INV = to_decimal(Y_INV)
 _SINK_L = to_decimal(SINK_L)
 _G_EARTH = to_decimal(G_EARTH_MS2)
 
-# Kissing number of the Leech Lattice (196560)
-_KISSING = D('196560')
+# v5.4: KISSING sourced from substrate — single source of truth
+_KISSING = to_decimal(KISSING_NUMBER)  # = D('196560')
 
 # Gravity per tick² (60 ticks/s, Equivalence Principle: uniform for all masses)
 # g_tick = G_EARTH / 60² = 9.80665 / 3600 ≈ 0.002724 m/s² per tick²
@@ -758,3 +770,95 @@ class EntityFactoryV3:
             entity_type=EntityType.LEVER_ARM,
             is_static=False,
         )
+
+
+# ---------------------------------------------------------------------------
+# v5.4 NEW: Register as a physics domain (Phase 6 extension point)
+# ---------------------------------------------------------------------------
+try:
+    from ubp_physics_registry import PhysicsDomain, register_domain as _register_domain
+
+    def _core_entity_validate() -> dict:
+        """Validate the core entity system constants.
+
+        Checks that:
+          • KISSING matches substrate (no local drift)
+          • All physics constants match their canonical UBP formulas:
+            - _G_PER_TICK_SQ = G_EARTH / 3600 * Y
+            - _V_MAX = 1 / Y
+            - _C_DRAG = Y² (The Shaving)
+            - _V_REST_THRESHOLD = SINK_L / 100
+          • All constants are positive
+          • Shear constants present and in expected range
+          • Conscious threshold is the canonical 7/10
+          • F_MAX_HZ is the canonical 1 THz Wall of Reality
+        """
+        results = {}
+        results['kissing_matches_substrate'] = int(_KISSING) == KISSING_NUMBER
+        # Canonical formula checks (use Decimal arithmetic for the comparison)
+        results['g_per_tick_sq_formula'] = abs(
+            float(_G_PER_TICK_SQ) - float(_G_EARTH / D('3600') * _Y)
+        ) < 1e-30
+        results['v_max_formula'] = abs(
+            float(_V_MAX) - float(D('1') / _Y)
+        ) < 1e-30
+        results['c_drag_formula'] = abs(
+            float(_C_DRAG) - float(_Y * _Y)
+        ) < 1e-30
+        results['v_rest_threshold_formula'] = abs(
+            float(_V_REST_THRESHOLD) - float(_SINK_L / D('100'))
+        ) < 1e-30
+        # Positivity
+        results['g_per_tick_sq_positive'] = float(_G_PER_TICK_SQ) > 0
+        results['v_max_positive'] = float(_V_MAX) > 0
+        results['c_drag_positive'] = float(_C_DRAG) > 0
+        results['v_rest_threshold_positive'] = float(_V_REST_THRESHOLD) > 0
+        # v5.4 shear constants in range
+        results['shear_1_in_range'] = 1.04 < float(SHEAR_1) < 1.06
+        results['shear_2_in_range'] = 1.04 < float(SHEAR_2) < 1.07
+        # Observer Dynamics canonical values
+        results['conscious_threshold_canonical'] = CONSCIOUS_THRESHOLD == Fraction(7, 10)
+        results['f_max_hz_canonical'] = F_MAX_HZ == 10**12
+
+        all_ok = all(results.values())
+        results['status'] = 'GREEN' if all_ok else 'YELLOW'
+        return results
+
+    _register_domain(PhysicsDomain(
+        name='core_entity',
+        version='5.1-v5.4',
+        description='UBP entity system — composite materials, NRCI health, Observer '
+                    'Dynamics (MANIFESTED/SUBLIMINAL), Gray Code UMS, DQI, TER, SOC energy.',
+        constants={
+            'Y_CONSTANT':           Y_CONSTANT,
+            'Y_INV':                Y_INV,
+            'PI':                   PI,
+            'SINK_L':               SINK_L,
+            'SINK_L_STEREO':        SINK_L_STEREO,
+            'G_EARTH_MS2':          G_EARTH_MS2,
+            'KISSING_NUMBER':       KISSING_NUMBER,
+            'CONSCIOUS_THRESHOLD':  CONSCIOUS_THRESHOLD,
+            'F_MAX_HZ':             F_MAX_HZ,
+            'NOUMENAL_VOLUME':      NOUMENAL_VOLUME,
+            'SHEAR_1':              SHEAR_1,
+            'SHEAR_2':              SHEAR_2,
+            # Entity-specific Decimal constants (as floats for serialization)
+            'G_PER_TICK_SQ':        float(_G_PER_TICK_SQ),
+            'V_MAX':                float(_V_MAX),
+            'C_DRAG':               float(_C_DRAG),
+            'V_REST_THRESHOLD':     float(_V_REST_THRESHOLD),
+        },
+        engines={},  # UBPEntityV3 is a class, not a singleton
+        formulas={
+            # Each formula returns the UBP-derived Fraction prediction
+            'speed_limit':           lambda: Fraction(1) / Y_CONSTANT,           # 1/Y
+            'drag_coefficient':      lambda: Y_CONSTANT * Y_CONSTANT,            # Y²
+            'rest_threshold':        lambda: SINK_L / Fraction(100),
+            'conscious_threshold':   lambda: CONSCIOUS_THRESHOLD,                # 7/10
+            'wall_of_reality_hz':    lambda: Fraction(F_MAX_HZ),                 # 10^12
+        },
+        validate=_core_entity_validate,
+    ), replace=True)
+    del _register_domain  # clean namespace
+except ImportError:
+    pass  # ubp_physics_registry not available — silently skip registration

@@ -689,7 +689,7 @@ async def get_engine_test():
             vector_from_math_dna, calculate_nrci, calculate_symmetry_tax,
             xor_interact, validate_substrate, Y_CONSTANT
         )
-        from ubp_core_v5_3_merged import BinaryLinearAlgebra, LEECH_ENGINE
+        from ubp_unified_v5 import BinaryLinearAlgebra, LEECH_ENGINE
         from ubp_tgic_engine import TGICInteractionEngine
         from fractions import Fraction
 

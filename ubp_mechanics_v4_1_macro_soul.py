@@ -1,6 +1,6 @@
 """
-UBP MECHANICS v4.1 — MACRO-SOUL PATCH
-======================================
+UBP MECHANICS v4.1 — MACRO-SOUL PATCH (v5.4 ALIGNED)
+===================================================
 Adds persistent 256D Barnes-Wall macro-state to every live entity.
 
 What this patch does:
@@ -10,8 +10,17 @@ What this patch does:
   • Exposed in entity.to_threejs_state() and full_entity_report()
   • SHA-256 fingerprint is used as the native 256D coordinate (G-Hash parked)
 
+v5.4 ALIGNMENT (Phase 4):
+  • The integration instructions below now use get_barnes_wall(256) from
+    ubp_engine_substrate instead of the deprecated standalone
+    BarnesWallEngine(dimension=256). The substrate accessor returns the
+    v5.4-canonical BarnesWallEngine (dependency-injected, float-free,
+    with the rich audit() method).
+  • The inline `from ubp_unified_v5 import BinaryLinearAlgebra` in
+    NCRIState.update_macro() was already updated in Phase 1.
+
 Author: Grok + UBP Digital Twin Project
-Date: 24 March 2026
+Date: 24 March 2026 (v5.4 alignment July 2026)
 """
 
 import hashlib
@@ -88,7 +97,7 @@ class NCRIState:
         self.macro_basin = int(round(nrci * 12))        # simple 12-shell mapping
         # Back-project first 24 bits to measure holographic drift
         back_24 = [int(x) % 2 for x in snapped[:24]]
-        from ubp_core_v5_3_merged import BinaryLinearAlgebra
+        from ubp_unified_v5 import BinaryLinearAlgebra
         self.shadow_drift = BinaryLinearAlgebra.hamming_distance(self.vector, back_24)
 
 # =============================================================================
@@ -153,7 +162,8 @@ def patch_dissolution_check(self, state: NCRIState) -> bool:
    self.apply_damage = patch_apply_damage.__get__(self, SinkEngine)
 
 4. In UBPMechanicsV4.__init__ (or wherever you initialise engines):
-   self.bw_engine = BarnesWallEngine(dimension=256)   # make sure this exists
+   from ubp_engine_substrate import get_barnes_wall
+   self.bw_engine = get_barnes_wall(256)   # v5.4 canonical BarnesWallEngine
 
 5. In UBPEntityV3.__init__ (after creating nrci_state):
    if _UBP_MECHANICS_AVAILABLE and self.nrci_state is not None:
