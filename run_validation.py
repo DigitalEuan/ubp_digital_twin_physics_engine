@@ -17,7 +17,7 @@ from decimal import Decimal, getcontext
 getcontext().prec = 50
 
 # ── imports ──────────────────────────────────────────────────────────────────
-from ubp_core_v5_3_merged import BinaryLinearAlgebra, LeechLatticeEngine
+from ubp_unified_v5 import BinaryLinearAlgebra, LeechLatticeEngine, GolayCodeEngine
 from ubp_engine_substrate import (
     Y_CONSTANT, Y_INV, PI, SINK_L,
     calculate_symmetry_tax, calculate_nrci,
@@ -99,7 +99,7 @@ print()
 
 # ── TEST 4: Volumetric Rebate in calculate_symmetry_tax ──────────────────
 print("4. Volumetric Rebate in calculate_symmetry_tax (v6.3.1)")
-leech = LeechLatticeEngine()
+leech = LeechLatticeEngine(GolayCodeEngine())
 tax_compact = leech.calculate_symmetry_tax(golay_vec, compactness=1.0)
 tax_spread  = leech.calculate_symmetry_tax(golay_vec, compactness=0.0)
 check("Compact entity has lower symmetry tax than spread entity",

@@ -31,7 +31,19 @@ def _dumps(obj: Any) -> str:
     return json.dumps(obj, cls=_UBPEncoder)
 
 
-from ubp_engine_substrate import Y_CONSTANT, UBPEngineSubstrate
+from ubp_engine_substrate import (
+    Y_CONSTANT, UBPEngineSubstrate,
+    # v5.4 NEW: Physics-prediction constants and registry access
+    MUON_ELECTRON_RATIO, STRONG_COUPLING_ALPHA_S, ALPHA_CUBED,
+    HUBBLE_H0, OMEGA_K_BASE, GRAVITATIONAL_G,
+    SHEAR_1, SHEAR_2,
+    SINK_L, SINK_L_STEREO, SINK_SIGMA, EXISTENCE_UNIT,
+    MONAD, WOBBLE, PHI, E_CONST, Y_INV, PI,
+    get_monster, get_barnes_wall, get_triad,
+    get_noise_alu, get_physics_alu, get_linear_algebra_alu,
+    get_physics_registry,
+    validate_substrate,
+)
 from ubp_entity_v3 import EntityFactoryV3, UBPEntityV3, Position, D
 from ubp_space_v3 import UBPSpaceV3
 from ubp_fluid_v3 import FluidBodyV3
@@ -267,16 +279,17 @@ class UBPSimulation:
                     req_id = msg.get("req_id", "")
                     try:
                         # ============================================================
-                        # UBP v6.3.1 ENGINE VALIDATION SUITE
-                        # Tests all mechanics that were updated in v6.3.1
+                        # UBP v5.4 ENGINE VALIDATION SUITE
+                        # Tests all mechanics (v5.4 aligned)
                         # ============================================================
-                        from ubp_mechanics_v4 import UBP_MECHANICS, SINK_L
+                        # v5.4: These are now imported at module level — no more inline imports
+                        # (inline imports caused UnboundLocalError due to Python's scoping rules)
+                        from ubp_mechanics_v4 import UBP_MECHANICS
                         from ubp_engine_substrate import (
                             vector_from_math_dna, calculate_nrci, calculate_symmetry_tax,
-                            xor_interact, validate_substrate, Y_CONSTANT
+                            xor_interact,
                         )
-                        from ubp_core_v5_3_merged import BinaryLinearAlgebra, LEECH_ENGINE
-                        from fractions import Fraction
+                        from ubp_unified_v5 import BinaryLinearAlgebra, LEECH_ENGINE
 
                         tests = {}
                         all_pass = True
@@ -414,12 +427,12 @@ class UBPSimulation:
                             'type': 'engine_test_result',
                             'req_id': req_id,
                             'pass': all_pass,
-                            'ubp_version': 'v6.3.1',
-                            'engine_version': '5.0-ubp6.3.1',
+                            'ubp_version': 'v5.4 (ubp_unified_v5)',
+                            'engine_version': '5.2-v5.4',
                             'tests': tests,
                             'tests_passed': sum(1 for t in tests.values() if t.get('pass')),
                             'tests_total': len(tests),
-                            'message': 'All UBP v6.3.1 mechanics validated' if all_pass else 'Some tests failed',
+                            'message': 'All UBP v5.4 mechanics validated' if all_pass else 'Some tests failed',
                         }))
                     except Exception as e:
                         print(_dumps({
@@ -429,6 +442,186 @@ class UBPSimulation:
                             'error': str(e),
                             'traceback': traceback.format_exc(),
                         }))
+                    sys.stdout.flush()
+
+                # ====================================================================
+                # v5.4 NEW COMMANDS
+                # ====================================================================
+
+                elif cmd == "v54_constants":
+                    # Returns all v5.4 substrate constants as floats
+                    print(_dumps({
+                        'type': 'v54_constants',
+                        'constants': {
+                            'Y':              float(Y_CONSTANT),
+                            'Y_INV':          float(Y_INV),
+                            'PI':             float(PI),
+                            'PHI':            float(PHI),
+                            'E_CONST':        float(E_CONST),
+                            'MONAD':          float(MONAD),
+                            'WOBBLE':         float(WOBBLE),
+                            'SINK_L':         float(SINK_L),
+                            'SINK_L_STEREO':  float(SINK_L_STEREO),
+                            'SINK_SIGMA':     float(SINK_SIGMA),
+                            'EXISTENCE_UNIT': float(EXISTENCE_UNIT),
+                            'SHEAR_1':        float(SHEAR_1),
+                            'SHEAR_2':        float(SHEAR_2),
+                        },
+                    }))
+                    sys.stdout.flush()
+
+                elif cmd == "v54_physics_predictions":
+                    # Returns the 6 canonical v5.4 physics formula predictions
+                    # with their targets, errors, and budgets (UBP_SKILL_1 §9)
+                    preds = {
+                        'muon_electron_ratio': {
+                            'formula': '169 / w',
+                            'predicted': float(MUON_ELECTRON_RATIO),
+                            'target': 206.7683,
+                            'budget_pct': 0.10,
+                        },
+                        'strong_coupling_alpha_s': {
+                            'formula': '24 * Y^4',
+                            'predicted': float(STRONG_COUPLING_ALPHA_S),
+                            'target': 0.1181,
+                            'budget_pct': 0.50,
+                        },
+                        'alpha_cubed': {
+                            'formula': '(29/24) * Y^12 * e',
+                            'predicted': float(ALPHA_CUBED),
+                            'target': float(Fraction(1000, 137036) ** 3),
+                            'budget_pct': 0.50,
+                        },
+                        'hubble_H0': {
+                            'formula': '(1/3) * w * Y^3 * U_e',
+                            'predicted': float(HUBBLE_H0),
+                            'target': 70.0,
+                            'budget_pct': 1.00,
+                        },
+                        'omega_k_base': {
+                            'formula': '24 * Y^15 * U_e',
+                            'predicted': float(OMEGA_K_BASE),
+                            'target': 7.27e-4,
+                            'budget_pct': 1.00,
+                        },
+                        'gravitational_G': {
+                            'formula': '(39/29) * Y^18 / w',
+                            'predicted': float(GRAVITATIONAL_G),
+                            'target': 6.6743e-11,
+                            'budget_pct': 0.50,
+                        },
+                    }
+                    # Compute error_pct and in_budget for each
+                    for k, v in preds.items():
+                        err = abs(v['predicted'] - v['target']) / abs(v['target']) * 100
+                        v['error_pct'] = err
+                        v['in_budget'] = err < v['budget_pct']
+                    all_in = all(v['in_budget'] for v in preds.values())
+                    print(_dumps({
+                        'type': 'v54_physics_predictions',
+                        'predictions': preds,
+                        'all_in_budget': all_in,
+                        'ubp_skill_reference': 'UBP_SKILL_1 §9 Canonical Formula Table',
+                    }))
+                    sys.stdout.flush()
+
+                elif cmd == "physics_registry_status":
+                    # Returns the full physics registry validation report
+                    # (all 7 core domains + any registered user domains)
+                    registry = get_physics_registry()
+                    results = registry.validate_all()
+                    print(_dumps({
+                        'type': 'physics_registry_status',
+                        'overall': results.get('_overall'),
+                        'domain_count': results.get('_domain_count'),
+                        'domains': {k: v for k, v in results.items()
+                                    if not k.startswith('_')},
+                    }))
+                    sys.stdout.flush()
+
+                elif cmd == "triad_status":
+                    # Returns the status of the Triad engines
+                    # (Golay, Leech, Monster, BarnesWall, TriadActivation)
+                    try:
+                        monster = get_monster()
+                        bw = get_barnes_wall(256)
+                        triad = get_triad()
+                        status = {
+                            'golay_active': True,  # GOLAY_ENGINE loaded with substrate
+                            'leech_active': True,  # LEECH_ENGINE loaded with substrate
+                            'monster_loaded': monster is not None,
+                            'monster_has_moonshine': hasattr(monster, 'MOONSHINE') and monster.MOONSHINE is not None,
+                            'barnes_wall_dim': getattr(bw, 'dimension', None),
+                            'triad_instantiable': triad is not None,
+                        }
+                        status['triad_level'] = 3 if all([
+                            status['golay_active'], status['leech_active'],
+                            status['monster_loaded'], status['triad_instantiable']
+                        ]) else 0
+                        print(_dumps({'type': 'triad_status', 'status': status}))
+                    except Exception as e:
+                        print(_dumps({'type': 'triad_status', 'error': str(e)}))
+                    sys.stdout.flush()
+
+                elif cmd == "alu_compute":
+                    # Runs a Sovereign ALU operation with SM or SV mode
+                    # Input: {command: "alu_compute", op: "add"|"subtract"|"multiply",
+                    #         a: [24-bit list], b: [24-bit list], mode: "SM"|"SV",
+                    #         alu_type: "noise"|"physics"|"linear_algebra"}
+                    try:
+                        op = msg.get("op", "add")
+                        a = msg.get("a", [0]*24)
+                        b = msg.get("b", [0]*24)
+                        mode = msg.get("mode", "SV")
+                        alu_type = msg.get("alu_type", "noise")
+
+                        if alu_type == "physics":
+                            alu = get_physics_alu(mode)
+                        elif alu_type == "linear_algebra":
+                            alu = get_linear_algebra_alu(mode)
+                        else:
+                            alu = get_noise_alu(mode)
+
+                        # Map op to method name (ALU uses 'add', 'sub', 'mul' etc.)
+                        method_map = {
+                            'add': 'add', 'subtract': 'sub', 'sub': 'sub',
+                            'multiply': 'mul', 'mul': 'mul',
+                        }
+                        method_name = method_map.get(op, op)
+                        if not hasattr(alu, method_name):
+                            print(_dumps({
+                                'type': 'alu_compute', 'error': f"ALU has no method '{op}' (try add/subtract/multiply)",
+                                'available_methods': [m for m in dir(alu) if not m.startswith('_') and callable(getattr(alu, m))][:20],
+                            }))
+                        else:
+                            method = getattr(alu, method_name)
+                            result = method(a, b)
+                            print(_dumps({
+                                'type': 'alu_compute',
+                                'op': op,
+                                'mode': mode,
+                                'alu_type': alu_type,
+                                'result': result,
+                            }))
+                    except Exception as e:
+                        print(_dumps({'type': 'alu_compute', 'error': str(e),
+                                      'traceback': traceback.format_exc()}))
+                    sys.stdout.flush()
+
+                elif cmd == "substrate_validate":
+                    # Runs the full validate_substrate() and returns the report
+                    req_id = msg.get("req_id", "")
+                    try:
+                        report = validate_substrate()
+                        print(_dumps({
+                            'type': 'substrate_validate',
+                            'req_id': req_id,
+                            'overall': report.get('overall'),
+                            'blocks': {k: v for k, v in report.items() if k != 'overall'},
+                        }))
+                    except Exception as e:
+                        print(_dumps({'type': 'substrate_validate', 'req_id': req_id,
+                                      'error': str(e)}))
                     sys.stdout.flush()
 
             except Exception as e:
