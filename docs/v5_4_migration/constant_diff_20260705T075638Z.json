@@ -1,0 +1,296 @@
+{
+  "timestamp": "20260705T075638Z",
+  "old_backbone": "ubp_core_v5_3_merged (digital twin current)",
+  "new_backbone": "ubp_unified_v5 (v5.4.0 reference)",
+  "constants_diff": [
+    {
+      "constant": "L",
+      "old": 0.06289078670588419,
+      "new": 0.06289078670588419,
+      "delta_pct": 0.0,
+      "status": "UNCHANGED"
+    },
+    {
+      "constant": "L_s",
+      "old": null,
+      "new": {
+        "fraction": "55292007462351095154559143022157628027920167647200199971219/727593104240524237779107682031680000000000000000000000000000",
+        "float": 0.07599303393627674
+      },
+      "delta_pct": null,
+      "status": "NEW_IN_V54"
+    },
+    {
+      "constant": "U_e",
+      "old": 13824.0,
+      "new": 13824.0,
+      "delta_pct": 0.0,
+      "status": "UNCHANGED"
+    },
+    {
+      "constant": "Y",
+      "old": 0.26467543040452696,
+      "new": 0.26467543040452696,
+      "delta_pct": 0.0,
+      "status": "UNCHANGED"
+    },
+    {
+      "constant": "Y_INV",
+      "old": 3.7782124259573746,
+      "new": 3.7782124259573746,
+      "delta_pct": 0.0,
+      "status": "UNCHANGED"
+    },
+    {
+      "constant": "e_const",
+      "old": 2.718281828459045,
+      "new": 2.718281828459045,
+      "delta_pct": 0.0,
+      "status": "UNCHANGED"
+    },
+    {
+      "constant": "monad",
+      "old": 13.817580227176494,
+      "new": 13.817580227176494,
+      "delta_pct": 0.0,
+      "status": "UNCHANGED"
+    },
+    {
+      "constant": "phi",
+      "old": 1.618033988749895,
+      "new": 1.618033988749895,
+      "delta_pct": 0.0,
+      "status": "UNCHANGED"
+    },
+    {
+      "constant": "pi",
+      "old": 3.141592653589793,
+      "new": 3.141592653589793,
+      "delta_pct": 0.0,
+      "status": "UNCHANGED"
+    },
+    {
+      "constant": "sigma",
+      "old": null,
+      "new": {
+        "fraction": "29/24",
+        "float": 1.2083333333333333
+      },
+      "delta_pct": null,
+      "status": "NEW_IN_V54"
+    },
+    {
+      "constant": "wobble",
+      "old": 0.8175802271764946,
+      "new": 0.8175802271764946,
+      "delta_pct": 0.0,
+      "status": "UNCHANGED"
+    }
+  ],
+  "classes_added_in_v54": [
+    "AdaptiveManifold",
+    "BLA",
+    "BarnesWallEngine",
+    "ExactMath",
+    "ExactRoot",
+    "F",
+    "GolaySubstrateStub",
+    "LinearAlgebraALU",
+    "LinearStateEncoder",
+    "MathNetNoiseRunner",
+    "MonsterGroup",
+    "NeuralPatternDetector",
+    "NoiseALU",
+    "NoiseCellV3",
+    "NoiseRegisterV3",
+    "ParallelUBP",
+    "Path",
+    "PhysicsALU",
+    "SubstrateCalibrator",
+    "SubstrateLibrary",
+    "UBPQualityMetrics"
+  ],
+  "classes_removed_in_v54": [],
+  "old_predictions": {
+    "alpha_inv": {
+      "val": 137.06289078670588,
+      "error_percent": 0.019623884893103648,
+      "nrci": 0.7732189113961436,
+      "best_lens": "Source Code (13D Sink)",
+      "status": "STABLE"
+    },
+    "higgs_boson": {
+      "val": 125285.40223542214,
+      "error_percent": 0.02826525782206618,
+      "nrci": 0.7732189113961436,
+      "best_lens": "Source Code (13D Sink)",
+      "status": "STABLE"
+    },
+    "muon_electron": {
+      "val": 206.7546894404706,
+      "error_percent": 0.006572845471948019,
+      "nrci": 0.6944723173313235,
+      "best_lens": "Source Code (13D Sink)",
+      "status": "STABLE"
+    },
+    "proton_electron": {
+      "val": 1836.1257815734118,
+      "error_percent": 0.0014643894828271407,
+      "nrci": 0.7732189113961436,
+      "best_lens": "Source Code (13D Sink)",
+      "status": "STABLE"
+    },
+    "top_quark": {
+      "val": 172796.88678562184,
+      "error_percent": 0.021351461925122793,
+      "nrci": 0.6944723173313235,
+      "best_lens": "Source Code (13D Sink)",
+      "status": "STABLE"
+    },
+    "sink_metadata": {
+      "wobble": 0.8175802271764946,
+      "leakage_L": 0.06289078670588419,
+      "monad": 13.817580227176494,
+      "status": "PHASE_LOCKED"
+    },
+    "global_error": 0.015455567919013558
+  },
+  "new_predictions": {
+    "Alpha Inv": {
+      "val": 137.06289078670588,
+      "target": 137.035999,
+      "error_percent": 0.0196238848931106,
+      "lens": "Core Ratio"
+    },
+    "Proton/e- Ratio": {
+      "val": 1836.1519860678725,
+      "target": 1836.15267,
+      "error_percent": 3.7248107884543604e-05,
+      "lens": "Stereoscopic"
+    },
+    "Muon/e- Ratio": {
+      "val": 206.70754304276642,
+      "target": 206.76828,
+      "error_percent": 0.029374407541413735,
+      "lens": "Core Ratio"
+    },
+    "Electron (e-)": {
+      "val": 0.5109957806030295,
+      "target": 0.510998,
+      "error_percent": 0.0004343259602684455,
+      "lens": "1D Filament + 7/80 Sink"
+    },
+    "Muon (mu-)": {
+      "val": 105.62733745193346,
+      "target": 105.658,
+      "error_percent": 0.029020564525686576,
+      "lens": "Core Ratio"
+    },
+    "Tau (tau-)": {
+      "val": 1777.260890653538,
+      "target": 1776.86,
+      "error_percent": 0.022561746763269764,
+      "lens": "24D MPG Lever"
+    },
+    "Proton (p+)": {
+      "val": 938.2717369210975,
+      "target": 938.272,
+      "error_percent": 2.8038660697158386e-05,
+      "lens": "Stereoscopic"
+    },
+    "Neutron (n0)": {
+      "val": 939.5715786005426,
+      "target": 939.565,
+      "error_percent": 0.0007001751387678428,
+      "lens": "G13 Hybrid"
+    },
+    "Delta++ (D++)": {
+      "val": 1229.435610898466,
+      "target": 1232.0,
+      "error_percent": 0.20814846603360718,
+      "lens": "G15 Spin Flip"
+    },
+    "Higgs Boson": {
+      "val": 125285.40223542214,
+      "target": 125250.0,
+      "error_percent": 0.02826525782207035,
+      "lens": "Core Ratio"
+    },
+    "Top Quark": {
+      "val": 172796.88678562184,
+      "target": 172760.0,
+      "error_percent": 0.021351461925128247,
+      "lens": "Core Ratio"
+    },
+    "Xi_bc+ (bcu)": {
+      "val": 6951.681822343092,
+      "target": 6943.0,
+      "error_percent": 0.12504425094471433,
+      "lens": "Higgs/18"
+    },
+    "Xi_bb (bbu)": {
+      "val": 10143.108888888888,
+      "target": 10143.0,
+      "error_percent": 0.0010735373054213634,
+      "lens": "Z-Boson/9"
+    },
+    "Omega_bbb (bbb)": {
+      "val": 14375.740565468488,
+      "target": 14371.0,
+      "error_percent": 0.03298702573577086,
+      "lens": "Top/12"
+    },
+    "Xicc++ (ccu)": {
+      "val": 3621.55,
+      "target": 3621.55,
+      "error_percent": 0.0,
+      "lens": "Anchor"
+    },
+    "Xicc+ (ccd)": {
+      "val": 3621.9199524670125,
+      "target": 3621.92,
+      "error_percent": 1.3123698847572728e-06,
+      "lens": "Isospin Shift"
+    },
+    "Omcc+ (ccs)": {
+      "val": 3773.2764814353955,
+      "target": 3773.28,
+      "error_percent": 9.324949657454071e-05,
+      "lens": "Strange Leap"
+    },
+    "Omccc++ (ccc)": {
+      "val": 4760.575,
+      "target": 4760.57,
+      "error_percent": 0.00010502943975196248,
+      "lens": "Triple Compression"
+    },
+    "Lc+ (udc)": {
+      "val": 2290.6744113174223,
+      "target": 2286.46,
+      "error_percent": 0.18432036061957113,
+      "lens": "Archimedean Lever"
+    },
+    "Xic+ (usc)": {
+      "val": 2472.746189039897,
+      "target": 2467.71,
+      "error_percent": 0.2040835041352926,
+      "lens": "Singly Strange"
+    },
+    "Omc0 (ssc)": {
+      "val": 2654.8179667623717,
+      "target": 2695.2,
+      "error_percent": 1.498294495311227,
+      "lens": "Doubly Strange"
+    },
+    "global_error": 0.11454992108238633,
+    "sink_metadata": {
+      "L": 0.06289078670588419,
+      "L_s": 0.07599303393627674,
+      "sigma": "29/24",
+      "monad": 13.817580227176494,
+      "wobble": 0.8175802271764946,
+      "leakage_L": 0.06289078670588419,
+      "status": "ACTIVE"
+    }
+  }
+}
