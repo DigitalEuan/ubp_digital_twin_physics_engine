@@ -1,0 +1,390 @@
+{
+  "engine": "UBP Game Engine V3",
+  "summary": {
+    "total": 63,
+    "passed": 63,
+    "failed": 0,
+    "pass_rate": 1.0,
+    "failed_tests": []
+  },
+  "tests": [
+    {
+      "id": "A1",
+      "name": "Y constant is correct (0.26468...)",
+      "passed": true,
+      "detail": "Y=0.264675 (0.0ms)"
+    },
+    {
+      "id": "A2",
+      "name": "Y_INV = 1/Y (speed limit)",
+      "passed": true,
+      "detail": "Y\u00d7Y_INV=1.00000000 (0.0ms)"
+    },
+    {
+      "id": "A3",
+      "name": "SINK_L is positive (13D sink leakage)",
+      "passed": true,
+      "detail": "SINK_L=0.062891 (0.0ms)"
+    },
+    {
+      "id": "A4",
+      "name": "Kissing number = 196560 (Leech Lattice)",
+      "passed": true,
+      "detail": "KISSING=196560 (0.0ms)"
+    },
+    {
+      "id": "A5",
+      "name": "Golay vector from DNA is 24-bit",
+      "passed": true,
+      "detail": "len=24 (0.1ms)"
+    },
+    {
+      "id": "A6",
+      "name": "Symmetry Tax is non-negative",
+      "passed": true,
+      "detail": "tax\u22650 (0.1ms)"
+    },
+    {
+      "id": "A7",
+      "name": "UBP Substrate validates correctly",
+      "passed": true,
+      "detail": "Golay correction OK (0.5ms)"
+    },
+    {
+      "id": "B1",
+      "name": "Iron material loads from KB",
+      "passed": true,
+      "detail": "iron.name=iron (0.3ms)"
+    },
+    {
+      "id": "B2",
+      "name": "Water material loads from KB",
+      "passed": true,
+      "detail": "water.name=water (0.4ms)"
+    },
+    {
+      "id": "B3",
+      "name": "Iron NRCI is in [0, 1]",
+      "passed": true,
+      "detail": "iron.nrci=0.6003 (0.0ms)"
+    },
+    {
+      "id": "B4",
+      "name": "Iron density > aluminium density (physical)",
+      "passed": true,
+      "detail": "Fe=7.87 > Al=2.70 (0.2ms)"
+    },
+    {
+      "id": "B5",
+      "name": "Iron heat transfer coefficient is positive",
+      "passed": true,
+      "detail": "Fe.k=0.0234 (0.0ms)"
+    },
+    {
+      "id": "B6",
+      "name": "Iron aggregate mass matches atomic mass (55.845)",
+      "passed": true,
+      "detail": "Fe.mass=55.845 (0.0ms)"
+    },
+    {
+      "id": "B7",
+      "name": "Iron aggregate mass > aluminium aggregate mass (Fe=55.8 > Al=27.0)",
+      "passed": true,
+      "detail": "Fe=55.84 > Al=26.98 (0.0ms)"
+    },
+    {
+      "id": "B8",
+      "name": "Material Golay vector is deterministic",
+      "passed": true,
+      "detail": "same DNA \u2192 same vector (0.1ms)"
+    },
+    {
+      "id": "B9",
+      "name": "Multiple materials available (\u22655 presets)",
+      "passed": true,
+      "detail": "presets=['iron', 'copper', 'aluminium', 'gold', 'carbon', 'silicon'] (0.0ms)"
+    },
+    {
+      "id": "C1",
+      "name": "C_DRAG = Y\u00b2 (LAW_ONTOLOGICAL_FRICTION_001)",
+      "passed": true,
+      "detail": "C_DRAG=0.070053, Y\u00b2=0.070053 (0.0ms)"
+    },
+    {
+      "id": "C2",
+      "name": "V_MAX = 1/Y (substrate speed limit)",
+      "passed": true,
+      "detail": "V_MAX=3.7782, 1/Y=3.7782 (0.0ms)"
+    },
+    {
+      "id": "C3",
+      "name": "G_PER_TICK_SQ derived from G_EARTH \u00d7 Y / 3600",
+      "passed": true,
+      "detail": "g/tick\u00b2=0.00072099 (0.0ms)"
+    },
+    {
+      "id": "C4",
+      "name": "V_REST_THRESHOLD = SINK_L / 100",
+      "passed": true,
+      "detail": "V_REST=0.00062891 (0.0ms)"
+    },
+    {
+      "id": "C5",
+      "name": "SPH pressure stiffness derived from SINK_L \u00d7 24 / KISSING",
+      "passed": true,
+      "detail": "k=0.00000768 (0.0ms)"
+    },
+    {
+      "id": "C6",
+      "name": "SPH viscosity derived from Y / 96",
+      "passed": true,
+      "detail": "\u03bc=0.00275704 (0.0ms)"
+    },
+    {
+      "id": "C7",
+      "name": "SPH surface tension derived from Y\u00b2 / KISSING",
+      "passed": true,
+      "detail": "\u03c3=0.0000003564 (0.0ms)"
+    },
+    {
+      "id": "C8",
+      "name": "No empirical multipliers \u2014 all constants UBP-derived",
+      "passed": true,
+      "detail": "All scalars derived from Y, SINK_L, KISSING_NUMBER, LEECH_DIMENSION (0.0ms)"
+    },
+    {
+      "id": "D1",
+      "name": "Equivalence Principle: iron and Al land at same tick (vacuum)",
+      "passed": true,
+      "detail": "iron_tick=161, al_tick=162, diff=1 (31.5ms)"
+    },
+    {
+      "id": "D2",
+      "name": "Block falls from y=10 to y=1 (floor surface)",
+      "passed": true,
+      "detail": "y=1.000, ticks=162 (17.6ms)"
+    },
+    {
+      "id": "D3",
+      "name": "Heavier block falls at same or earlier tick with air drag",
+      "passed": true,
+      "detail": "iron=161, al=162 (36.0ms)"
+    },
+    {
+      "id": "D4",
+      "name": "Velocity never exceeds V_MAX (substrate speed limit)",
+      "passed": true,
+      "detail": "max_vy=0.126754, V_MAX=3.778212 (66.4ms)"
+    },
+    {
+      "id": "E1",
+      "name": "Block rests on floor at y=1.0",
+      "passed": true,
+      "detail": "y=1.0000 (12.6ms)"
+    },
+    {
+      "id": "E2",
+      "name": "Two blocks stack: B1@y=1, B2@y=2",
+      "passed": true,
+      "detail": "B1.y=1.000, B2.y=2.000 (29.9ms)"
+    },
+    {
+      "id": "E3",
+      "name": "XOR Smash restitution is in [0, 1]",
+      "passed": true,
+      "detail": "XOR_NRCI=0.6814 (0.1ms)"
+    },
+    {
+      "id": "E4",
+      "name": "Friction via Hamming distance is in [0, 1]",
+      "passed": true,
+      "detail": "\u03bc=0.5000, dH=12 (0.0ms)"
+    },
+    {
+      "id": "E5",
+      "name": "Push force moves a resting block",
+      "passed": true,
+      "detail": "x: 5.000 \u2192 156.312 (31.2ms)"
+    },
+    {
+      "id": "F1",
+      "name": "Entity initialises at ambient temperature (293.15K)",
+      "passed": true,
+      "detail": "T=293.14K (0.6ms)"
+    },
+    {
+      "id": "F2",
+      "name": "UBP temperature = T_K \u00d7 Y \u00d7 k_B",
+      "passed": true,
+      "detail": "T_ubp=3.232900, expected=3.232900 (0.5ms)"
+    },
+    {
+      "id": "F3",
+      "name": "Iron heat transfer coefficient is positive",
+      "passed": true,
+      "detail": "k_Fe=0.0234 (UBP heat transfer) (0.0ms)"
+    },
+    {
+      "id": "F4",
+      "name": "Iron thermal capacity is positive",
+      "passed": true,
+      "detail": "cp_Fe=0.0882 (UBP thermal capacity) (0.0ms)"
+    },
+    {
+      "id": "F5",
+      "name": "Ambient temperature affects air density",
+      "passed": true,
+      "detail": "cold_density=0.324227, hot_density=0.324227 (0.8ms)"
+    },
+    {
+      "id": "F6",
+      "name": "Thermal state serialises to dict correctly",
+      "passed": true,
+      "detail": "thermal.T_K=293.14 (0.6ms)"
+    },
+    {
+      "id": "G1",
+      "name": "Ambient environment initialises correctly",
+      "passed": true,
+      "detail": "T=293.15K (0.3ms)"
+    },
+    {
+      "id": "G2",
+      "name": "Air density UBP value is positive",
+      "passed": true,
+      "detail": "\u03c1_air=0.324227 (0.3ms)"
+    },
+    {
+      "id": "G3",
+      "name": "Atmospheric pressure UBP value is positive",
+      "passed": true,
+      "detail": "P=7098.128682 (0.3ms)"
+    },
+    {
+      "id": "G4",
+      "name": "Space temperature change updates ambient correctly",
+      "passed": true,
+      "detail": "T=500.0K (1.3ms)"
+    },
+    {
+      "id": "H1",
+      "name": "Lever entity and pivot constraint create correctly",
+      "passed": true,
+      "detail": "lever created OK (2.0ms)"
+    },
+    {
+      "id": "H2",
+      "name": "Moment of inertia is positive (Topological Torque)",
+      "passed": true,
+      "detail": "I=9.773049 (Topological Torque) (1.1ms)"
+    },
+    {
+      "id": "H3",
+      "name": "Lever rotates when block is placed on arm",
+      "passed": true,
+      "detail": "angle=0.000\u00b0 (10.9ms)"
+    },
+    {
+      "id": "H4",
+      "name": "Angular damping (Hamming Damping) is in (0, 1)",
+      "passed": true,
+      "detail": "hamming_damping(C_DRAG=Y\u00b2)=0.0701 (0.9ms)"
+    },
+    {
+      "id": "H5",
+      "name": "Topological cost is non-negative",
+      "passed": true,
+      "detail": "topo_cost=0.000000 (1.0ms)"
+    },
+    {
+      "id": "I1",
+      "name": "Water fluid body creates with particles",
+      "passed": true,
+      "detail": "particles=18 (0.1ms)"
+    },
+    {
+      "id": "I2",
+      "name": "Fluid particles fall under gravity",
+      "passed": true,
+      "detail": "y_start=12.17, min_y=1.01 (120.0ms)"
+    },
+    {
+      "id": "I3",
+      "name": "SPH constants derived from SINK_L, Y, KISSING_NUMBER",
+      "passed": true,
+      "detail": "k=0.00000768, \u03bc=0.00275704 (0.0ms)"
+    },
+    {
+      "id": "I4",
+      "name": "Fluid particles stay within space bounds",
+      "passed": true,
+      "detail": "y_range=[1.01, 1.44] (89.2ms)"
+    },
+    {
+      "id": "I5",
+      "name": "Fluid body produces valid Three.js state",
+      "passed": true,
+      "detail": "particles=8 (0.1ms)"
+    },
+    {
+      "id": "J1",
+      "name": "Entity Three.js state has all required fields",
+      "passed": true,
+      "detail": "missing=[] (0.7ms)"
+    },
+    {
+      "id": "J2",
+      "name": "Space Three.js state has all required fields",
+      "passed": true,
+      "detail": "missing=[] (1.8ms)"
+    },
+    {
+      "id": "J3",
+      "name": "Space Three.js state is JSON-serialisable",
+      "passed": true,
+      "detail": "json_len=993 (1.7ms)"
+    },
+    {
+      "id": "J4",
+      "name": "All UBP physics constants are positive",
+      "passed": true,
+      "detail": "all_positive=True (0.0ms)"
+    },
+    {
+      "id": "K1",
+      "name": "Identical spaces produce identical results (determinism)",
+      "passed": true,
+      "detail": "y1=6.4306682726, y2=6.4306682726 (22.7ms)"
+    },
+    {
+      "id": "K2",
+      "name": "Collision outcome is deterministic",
+      "passed": true,
+      "detail": "y1=1.0000000000, y2=1.0000000000 (28.4ms)"
+    },
+    {
+      "id": "K3",
+      "name": "Golay vector from same DNA is always identical",
+      "passed": true,
+      "detail": "vectors_equal=True (0.1ms)"
+    },
+    {
+      "id": "L1",
+      "name": "Full simulation runs 200 ticks without error",
+      "passed": true,
+      "detail": "tick=200, entities=4, particles=18 (212.2ms)"
+    },
+    {
+      "id": "L2",
+      "name": "Full simulation produces valid Three.js JSON",
+      "passed": true,
+      "detail": "json_len=3708, tick=50 (12.0ms)"
+    },
+    {
+      "id": "L3",
+      "name": "100 ticks complete in under 5 seconds",
+      "passed": true,
+      "detail": "100 ticks in 0.08s (0.8ms/tick) (84.8ms)"
+    }
+  ]
+}
