@@ -1,6 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Grid } from '@react-three/drei';
+import { RealityAlignmentHUD } from './RealityAlignmentHUD';
+import { WorldPhysicsHUD } from './WorldPhysicsHUD';
+import DomainSpawnPalette from './DomainSpawnPalette';
+import DomainOverlays from './DomainOverlays';
+import OverlayControlsHUD, { type OverlayControlsState } from './OverlayControlsHUD';
 import * as THREE from 'three';
 import {
   Play, Pause, RotateCcw, Box as BoxIcon, Droplet, Activity,
@@ -56,6 +61,14 @@ interface EntityState {
   ter_score?: number;
   dqi?: number;
   ums_vector?: number[];
+  domain_tag?: string;
+  domain_role?: string;
+  domain_params?: Record<string, any>;
+  formula_source?: string;
+  research_candidate?: boolean;
+  workspace_scaling_note?: string;
+  render_shape?: string;
+  display_colour?: string;
 }
 
 interface FluidParticleState {
@@ -112,6 +125,9 @@ interface SimulationState {
     /** V4.0: count of entities currently dissolving */
     dissolving_count?: number;
   };
+  world_physics?: any;
+  reality_alignment?: any;
+  recent_decay_events?: any[];
 }
 
 // ---------------------------------------------------------------------------
@@ -135,7 +151,9 @@ const EntityMesh = React.memo(({
   const ry = data.rotation?.y ?? 0;
   const rz = data.rotation?.z ?? 0;
 
-  const colour = data.colour || '#888888';
+  const colour = data.display_colour || data.colour || '#888888';
+  const renderShape = data.render_shape || 'box';
+  const radius = Math.max(data.size.x, data.size.y, data.size.z) / 2;
 
   // Temperature-based emissive glow (hot = red glow)
   const tempNorm = Math.min(Math.max((data.temperature_K - 293) / 500, 0), 1);
@@ -146,6 +164,24 @@ const EntityMesh = React.memo(({
   const isDissolving = data.is_dissolving ?? false;
   const dissolveColour = isDissolving ? '#ff2222' : colour;
 
+  const geometry = renderShape === 'sphere'
+    ? <sphereGeometry args={[radius, 24, 24]} />
+    : <boxGeometry args={[data.size.x, data.size.y, data.size.z]} />;
+
+  const outline = renderShape === 'sphere'
+    ? (
+      <mesh scale={[1.08, 1.08, 1.08]}>
+        <sphereGeometry args={[radius, 24, 24]} />
+        <meshBasicMaterial color="#ffffff" wireframe transparent opacity={0.8} />
+      </mesh>
+    )
+    : (
+      <lineSegments>
+        <edgesGeometry args={[new THREE.BoxGeometry(data.size.x + 0.04, data.size.y + 0.04, data.size.z + 0.04)]} />
+        <lineBasicMaterial color="#ffffff" linewidth={2} />
+      </lineSegments>
+    );
+
   if (data.is_static) {
     return (
       <mesh
@@ -153,7 +189,7 @@ const EntityMesh = React.memo(({
         rotation={[rx, ry, rz]}
         onClick={(e) => { e.stopPropagation(); onClick(data.id); }}
       >
-        <boxGeometry args={[data.size.x, data.size.y, data.size.z]} />
+        {geometry}
         <meshStandardMaterial color={colour} transparent opacity={0.35} />
       </mesh>
     );
@@ -167,7 +203,7 @@ const EntityMesh = React.memo(({
       receiveShadow
       onClick={(e) => { e.stopPropagation(); onClick(data.id); }}
     >
-      <boxGeometry args={[data.size.x, data.size.y, data.size.z]} />
+      {geometry}
       <meshStandardMaterial
         color={selected ? '#ffffff' : dissolveColour}
         emissive={selected ? colour : (isDissolving ? '#ff0000' : emissiveColour)}
@@ -179,12 +215,7 @@ const EntityMesh = React.memo(({
         transparent={metabolicOpacity < 0.99 || isDissolving}
         opacity={isDissolving ? 0.4 : metabolicOpacity}
       />
-      {selected && (
-        <lineSegments>
-          <edgesGeometry args={[new THREE.BoxGeometry(data.size.x + 0.04, data.size.y + 0.04, data.size.z + 0.04)]} />
-          <lineBasicMaterial color="#ffffff" linewidth={2} />
-        </lineSegments>
-      )}
+      {selected && outline}
     </mesh>
   );
 });
@@ -335,6 +366,7 @@ const Scene = ({
   gridPlacementMode,
   gridCellSize,
   onGridClick,
+  overlayState,
 }: {
   state: SimulationState | null;
   selectedId: number | null;
@@ -342,6 +374,7 @@ const Scene = ({
   gridPlacementMode: boolean;
   gridCellSize: number;
   onGridClick: (gx: number, gz: number) => void;
+  overlayState: OverlayControlsState;
 }) => {
   if (!state) return null;
 
@@ -416,6 +449,14 @@ const Scene = ({
           <PivotMarker pivot={constraint.pivot} />
         </React.Fragment>
       ))}
+
+      <DomainOverlays
+        state={state}
+        showStaticOverlays={overlayState.staticOverlays}
+        showGravityField={overlayState.gravityField}
+        showEMField={overlayState.emField}
+        showThermalField={overlayState.thermalField}
+      />
 
       {/* Fluid particles */}
       <FluidParticles particles={state.fluid_particles || []} />
@@ -513,6 +554,23 @@ const EntityCard = ({
         <div>Temp: <span style={{ color: tempColour }}>{entity.temperature_K.toFixed(2)} K</span></div>
         <div>Y: <span className="text-slate-300">{entity.position.y.toFixed(3)}</span></div>
         <div>Vx: <span className="text-slate-300">{entity.velocity.x.toFixed(4)}</span></div>
+        {entity.domain_tag && (
+          <div className="col-span-2 text-[10px] text-slate-500 flex flex-wrap items-center gap-2">
+            <span>Domain:</span>
+            <span className="px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">{entity.domain_tag}</span>
+            {entity.domain_role && <span className="text-violet-300">{entity.domain_role}</span>}
+          </div>
+        )}
+        {entity.formula_source && (
+          <div className="col-span-2 text-[10px] text-slate-500">
+            Formula: <span className="text-slate-300">{entity.formula_source}</span>
+          </div>
+        )}
+        {entity.research_candidate && (
+          <div className="col-span-2 text-[10px] text-fuchsia-400 italic">
+            UBP research candidate — not null-model validated
+          </div>
+        )}
         {entity.lattice_cell && (
           <div className="col-span-2 text-[10px] text-slate-500">
             Lattice: <span className="text-violet-400 font-mono">
@@ -532,6 +590,11 @@ const EntityCard = ({
           </div>
         )}
       </div>
+      {entity.workspace_scaling_note && (
+        <div className="text-[10px] text-slate-500 leading-relaxed">
+          {entity.workspace_scaling_note}
+        </div>
+      )}
       <div className="flex gap-2 text-[10px] flex-wrap">
         {entity.is_static && <span className="text-amber-400">STATIC</span>}
         {entity.is_resting && <span className="text-emerald-400">AT REST</span>}
@@ -846,6 +909,12 @@ export default function App() {
   const [v54Predictions, setV54Predictions] = useState<any>(null);
   const [v54Registry, setV54Registry] = useState<any>(null);
   const [v54Loading, setV54Loading] = useState(false);
+  const [overlayState, setOverlayState] = useState<OverlayControlsState>({
+    staticOverlays: true,
+    gravityField: false,
+    emField: false,
+    thermalField: false,
+  });
   const [synthesisLog, setSynthesisLog] = useState<Array<{tick: number; a: string; b: string; hamming: number; restitution: number}>>([]);
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -964,6 +1033,30 @@ export default function App() {
     setTimeout(() => setDemoStatus(null), 8000);
   }, [sendCommand]);
 
+  const handleSpawnDomainEntity = useCallback(async (payload: {
+    domain: string;
+    preset: string;
+    params: Record<string, any>;
+  }) => {
+    try {
+      const res = await fetch('/v54/spawn_domain_entity', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (data?.error) {
+        setDemoStatus(`Spawn failed: ${data.error}`);
+      } else {
+        setDemoStatus(`Spawned ${data?.label ?? payload.preset} in the live workspace`);
+      }
+    } catch (e) {
+      setDemoStatus(`Spawn failed: ${String(e)}`);
+    } finally {
+      setTimeout(() => setDemoStatus(null), 5000);
+    }
+  }, []);
+
   // V4.0: Run engine_test validation against README spec
   const handleRunEngineTest = useCallback(async () => {
     setEngineTestLoading(true);
@@ -1027,9 +1120,22 @@ export default function App() {
             gridPlacementMode={gridPlacementMode}
             gridCellSize={1.0}
             onGridClick={handleGridClick}
+            overlayState={overlayState}
           />
           <OrbitControls makeDefault target={[10, 5, 5]} />
         </Canvas>
+
+        <DomainSpawnPalette onSpawn={handleSpawnDomainEntity} />
+
+        <div className="absolute top-4 right-4 z-30 pointer-events-auto">
+          <RealityAlignmentHUD floating alignment={state?.reality_alignment} decayEvents={state?.recent_decay_events} />
+        </div>
+
+        <div className="absolute left-4 bottom-4 z-30 pointer-events-auto">
+          <WorldPhysicsHUD liveState={state?.world_physics} alignment={state?.reality_alignment} />
+        </div>
+
+        <OverlayControlsHUD value={overlayState} onChange={setOverlayState} />
 
         {/* HUD — top-left */}
         <div className="absolute top-4 left-4 bg-slate-900/85 backdrop-blur-sm p-4 rounded-xl border border-slate-700 shadow-lg pointer-events-none min-w-[240px]">
