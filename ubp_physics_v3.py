@@ -61,6 +61,8 @@ from ubp_engine_substrate import (
     HUBBLE_H0, OMEGA_K_BASE, GRAVITATIONAL_G,
 )
 from ubp_materials import AmbientEnvironment
+from ubp_world_physics import WorldPhysicsState, get_world_physics
+from ubp_force_couplers import ForceCouplerSystem
 
 # UBP v4.0 Mechanics
 try:
@@ -116,14 +118,48 @@ class UBPPhysicsEngineV3:
         self.ambient = ambient or AmbientEnvironment()
         self._rho_air: Decimal = to_decimal(self.ambient.air_density_ubp)
         self._T_ambient: Decimal = to_decimal(self.ambient.temperature_ubp)
+        # Slice 2 + 5/6: live world-physics state + pairwise force couplers
+        self.world_physics: WorldPhysicsState = get_world_physics()
+        self.force_couplers = ForceCouplerSystem()
 
     def update_ambient(self, ambient: AmbientEnvironment) -> None:
         self.ambient = ambient
         self._rho_air = to_decimal(ambient.air_density_ubp)
         self._T_ambient = to_decimal(ambient.temperature_ubp)
 
+    def set_world_physics(self, world_physics: WorldPhysicsState) -> None:
+        """Install the mutable world-physics state used by gravity + pairwise couplers."""
+        self.world_physics = world_physics
+
+    def get_gravity_per_tick_sq(self) -> Decimal:
+        """Current gravity magnitude in engine tick^2 units.
+
+        Engine convention: g_tick = g_ms2 / 60^2 * Y
+        """
+        g_ms2 = Decimal(str(self.world_physics.gravity_ms2))
+        return g_ms2 / D('3600') * _Y
+
+    def _ms2_to_tick_accel(self, a_ms2: float) -> Decimal:
+        """Convert SI acceleration (m/s²) into engine tick² units."""
+        return Decimal(str(a_ms2)) / D('3600') * _Y
+
+    def _clip_pairwise_tick_vector(self, ax: Decimal, ay: Decimal, az: Decimal) -> Tuple[Decimal, Decimal, Decimal]:
+        """Clip pairwise acceleration to the engine stability budget.
+
+        This is a NUMERICAL/UI stability cap, not a physical constant. We cap the
+        per-tick pairwise contribution to a fraction of the engine's own V_MAX so
+        Coulomb / gravity interactions remain visible without instantly exploding.
+        """
+        import math
+        cap = _V_MAX / D('4')
+        mag = Decimal(str(math.sqrt(float(ax*ax + ay*ay + az*az))))
+        if mag <= cap or mag == D0:
+            return ax, ay, az
+        scale = cap / mag
+        return ax * scale, ay * scale, az * scale
+
     def compute_gravity(self, entity: UBPEntityV3) -> Decimal:
-        return -_G_PER_TICK_SQ
+        return -self.get_gravity_per_tick_sq()
 
     def compute_air_resistance(self, entity: UBPEntityV3) -> Velocity:
         T_STP = D('3.2329')
@@ -142,7 +178,7 @@ class UBPPhysicsEngineV3:
         dH = hamming_distance(entity.golay_vector, surface.golay_vector)
         mu = D1 - D(str(dH)) / D('24')
         mu = max(D0, min(D1, mu))
-        friction_mag = mu * _G_PER_TICK_SQ / entity.inertia
+        friction_mag = mu * self.get_gravity_per_tick_sq() / entity.inertia
         ax = D0
         az = D0
         if abs(entity.velocity.vx) > _V_REST_THRESHOLD:
@@ -411,6 +447,26 @@ class UBPPhysicsEngineV3:
         g_acc = self.compute_gravity(entity)
         entity.velocity.vy += g_acc
         forces['gravity'] = g_acc
+
+        # ---- 1b. PAIRWISE DOMAIN FORCES (Slices 5 + 6) ----
+        pair = self.force_couplers.acceleration_ms2_on(entity, all_entities, self.world_physics)
+        g_pair = pair['gravity_pair']
+        em_pair = pair['electromagnetic']
+        total_pair = pair['total']
+        ax_pair = self._ms2_to_tick_accel(total_pair.ax_ms2)
+        ay_pair = self._ms2_to_tick_accel(total_pair.ay_ms2)
+        az_pair = self._ms2_to_tick_accel(total_pair.az_ms2)
+        ax_pair, ay_pair, az_pair = self._clip_pairwise_tick_vector(ax_pair, ay_pair, az_pair)
+        entity.velocity.vx += ax_pair
+        entity.velocity.vy += ay_pair
+        entity.velocity.vz += az_pair
+        forces['gravity_pair_x'] = self._ms2_to_tick_accel(g_pair.ax_ms2)
+        forces['gravity_pair_y'] = self._ms2_to_tick_accel(g_pair.ay_ms2)
+        forces['gravity_pair_z'] = self._ms2_to_tick_accel(g_pair.az_ms2)
+        forces['em_pair_x'] = self._ms2_to_tick_accel(em_pair.ax_ms2)
+        forces['em_pair_y'] = self._ms2_to_tick_accel(em_pair.ay_ms2)
+        forces['em_pair_z'] = self._ms2_to_tick_accel(em_pair.az_ms2)
+        forces['pairwise_contributors'] = Decimal(str(total_pair.contributors))
 
         # ---- 2. AIR RESISTANCE ----
         drag = self.compute_air_resistance(entity)

@@ -46,10 +46,11 @@ from ubp_entity_v3 import (
     UBPEntityV3, EntityFactoryV3, EntityType, Position, Velocity,
     D, D0, D1, to_decimal
 )
-from ubp_physics_v3 import UBPPhysicsEngineV3, _G_PER_TICK_SQ
+from ubp_physics_v3 import UBPPhysicsEngineV3
 from ubp_rigid_body_v3 import UBPRigidBodyEngineV3, PivotConstraintV3
 from ubp_fluid_v3 import FluidBodyV3
 from ubp_materials import AmbientEnvironment, MaterialRegistry
+from ubp_domain_effects import DomainEffectsEngine
 from ubp_engine_substrate import (
     Y_CONSTANT, SINK_L, PI,
     F_MAX_HZ, calculate_soc_energy,
@@ -330,7 +331,8 @@ class UBPSpaceV3:
         t_start = time.perf_counter()
 
         # ---- RIGID BODY STEP ----
-        torque_results = self.rigid_body.step(self._entity_list, _G_PER_TICK_SQ)
+        gravity_per_tick_sq = self.physics.get_gravity_per_tick_sq() if hasattr(self.physics, 'get_gravity_per_tick_sq') else D('0')
+        torque_results = self.rigid_body.step(self._entity_list, gravity_per_tick_sq)
 
         # ---- PHYSICS STEP ----
         physics_results = []
@@ -428,6 +430,7 @@ class UBPSpaceV3:
             'tick_ms': (t_end - t_start) * 1000,
             'dissolved_count': len(dissolved_ids),
             'synthesis_events': synthesis_log,
+            'domain_effects': _effects_report,
         }
 
     def run_ticks(self, n: int) -> None:

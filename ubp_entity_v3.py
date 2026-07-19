@@ -328,6 +328,16 @@ class UBPEntityV3:
         self.entity_type: EntityType = entity_type
         self.is_static: bool = is_static
 
+        # Domain-native metadata (Slices 3+). Inert for ordinary blocks.
+        self.domain_tag: Optional[str] = None
+        self.domain_role: Optional[str] = None
+        self.domain_params: Dict[str, Any] = {}
+        self.formula_source: Optional[str] = None
+        self.research_candidate: bool = False
+        self.workspace_scaling_note: Optional[str] = None
+        self.render_shape: str = 'box'
+        self.display_colour: Optional[str] = None
+
         # Size (width, height, depth) in simulation cells
         self.size: Tuple[Decimal, Decimal, Decimal] = (
             D(str(size[0])), D(str(size[1])), D(str(size[2]))
@@ -615,6 +625,14 @@ class UBPEntityV3:
             'ter_score': round(self.ter_score, 6),
             'dqi': self.dqi,
             'ums_vector': self.ums_vector,
+            'domain_tag': self.domain_tag,
+            'domain_role': self.domain_role,
+            'domain_params': dict(self.domain_params),
+            'formula_source': self.formula_source,
+            'research_candidate': self.research_candidate,
+            'workspace_scaling_note': self.workspace_scaling_note,
+            'render_shape': self.render_shape,
+            'display_colour': self.display_colour,
         }
 
     def to_threejs_state(self) -> Dict[str, Any]:
@@ -638,7 +656,7 @@ class UBPEntityV3:
             'heavy': '#FFD700',
             'light': '#C0C0C0',
         }
-        colour = colour_map.get(self.material.name, '#888888')
+        colour = self.display_colour or colour_map.get(self.material.name, '#888888')
 
         # Metabolic rendering: opacity and tilt from live NRCI
         nrci_float = float(self.nrci)
@@ -666,6 +684,13 @@ class UBPEntityV3:
             'rotation': {'x': roll, 'y': pitch, 'z': yaw},
             'size': {'x': float(self.size[0]), 'y': float(self.size[1]), 'z': float(self.size[2])},
             'colour': colour,
+            'render_shape': self.render_shape,
+            'domain_tag': self.domain_tag,
+            'domain_role': self.domain_role,
+            'domain_params': dict(self.domain_params),
+            'formula_source': self.formula_source,
+            'research_candidate': self.research_candidate,
+            'workspace_scaling_note': self.workspace_scaling_note,
             'is_static': self.is_static,
             'is_resting': self.is_resting,
             'is_dissolving': self.is_dissolving,
@@ -770,6 +795,31 @@ class EntityFactoryV3:
             entity_type=EntityType.LEVER_ARM,
             is_static=False,
         )
+
+    @staticmethod
+    def make_domain_entity(
+        spec: Dict[str, Any],
+        position: Optional[Position] = None,
+    ) -> UBPEntityV3:
+        """Create an entity from a domain-spawn spec emitted by ubp_domain_spawns."""
+        entity = UBPEntityV3(
+            label=spec.get('label', 'DomainEntity'),
+            material_name=spec.get('material_name', 'silicon'),
+            position=position or Position(),
+            size=tuple(spec.get('size', (1.0, 1.0, 1.0))),
+            entity_type=EntityType.BLOCK,
+            is_static=bool(spec.get('is_static', False)),
+            temperature_K=float(spec.get('temperature_K', 293.15)),
+        )
+        entity.domain_tag = spec.get('domain_tag')
+        entity.domain_role = spec.get('domain_role')
+        entity.domain_params = dict(spec.get('domain_params', {}))
+        entity.formula_source = spec.get('formula_source')
+        entity.research_candidate = bool(spec.get('research_candidate', False))
+        entity.workspace_scaling_note = spec.get('workspace_scaling_note')
+        entity.render_shape = str(spec.get('render_shape', 'box'))
+        entity.display_colour = spec.get('display_colour')
+        return entity
 
 
 # ---------------------------------------------------------------------------
